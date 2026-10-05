@@ -23,12 +23,12 @@ import com.learnings.rag.ingest.ChunkMetadata;
 public class VectorRetriever implements DocumentRetriever {
 
     private final VectorStore vectorStore;
-    private final RagProperties.Retrieval settings;
+    private final RetrievalOptions defaults;
     private final Filter.Expression currentModel;
 
     public VectorRetriever(VectorStore vectorStore, RagProperties properties) {
         this.vectorStore = vectorStore;
-        this.settings = properties.retrieval();
+        this.defaults = RetrievalOptions.from(properties);
         this.currentModel = new FilterExpressionBuilder()
                 .eq(ChunkMetadata.EMBEDDING_MODEL, properties.embeddingModel())
                 .build();
@@ -36,10 +36,14 @@ public class VectorRetriever implements DocumentRetriever {
 
     @Override
     public List<Document> retrieve(Query query) {
+        return retrieve(query, defaults);
+    }
+
+    public List<Document> retrieve(Query query, RetrievalOptions options) {
         return vectorStore.similaritySearch(SearchRequest.builder()
                 .query(query.text())
-                .topK(settings.topK())
-                .similarityThreshold(settings.similarityThreshold())
+                .topK(options.topK())
+                .similarityThreshold(options.similarityThreshold())
                 .filterExpression(currentModel)
                 .build());
     }

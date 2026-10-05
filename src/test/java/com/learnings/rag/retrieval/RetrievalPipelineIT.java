@@ -77,6 +77,20 @@ class RetrievalPipelineIT {
     }
 
     @Test
+    void topKCanBeOverriddenPerCall() {
+        String question = "Which index type is HNSW and how does it build its graph?";
+        int indexed = jdbc.sql("SELECT count(*)::int FROM vector_store").query(Integer.class).single();
+        assertThat(indexed).as("the fixture corpus must exceed the default top-5").isGreaterThan(5);
+
+        assertThat(pipeline.retrieve(question, RetrievalOptions.from(properties).withTopK(1)).documents()).hasSize(1);
+        // Not min(10, indexed): a chunk sharing no words with the question has cosine 0 under the fake embeddings,
+        // and the 0.0 threshold (distance < 1) drops it.
+        assertThat(pipeline.retrieve(question, RetrievalOptions.from(properties).withTopK(10)).documents())
+                .hasSizeGreaterThan(5)
+                .hasSizeLessThanOrEqualTo(10);
+    }
+
+    @Test
     void ignoresChunksEmbeddedByAnotherModel() {
         // e.g. an upload from before an embedding-model switch: its vectors live in a different space.
         RagProperties retiredModel = new RagProperties(properties.corpusDir(), "retired-embedding-model",
