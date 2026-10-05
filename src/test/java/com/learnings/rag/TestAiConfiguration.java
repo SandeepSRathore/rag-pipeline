@@ -11,4 +11,9 @@ public class TestAiConfiguration {
     FakeEmbeddingModel embeddingModel() {
         return new FakeEmbeddingModel();
     }
+
+    @Bean
+    StubChatModel chatModel() {
+        return new StubChatModel("Stub answer [1].");
+    }
 }
