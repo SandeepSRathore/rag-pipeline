@@ -24,12 +24,25 @@ import com.learnings.rag.config.RagProperties;
 @Component
 public class StructureAwareChunker {
 
-    /** Bump when the algorithm changes, so every document is re-chunked on the next ingest. */
-    static final int ALGORITHM_VERSION = 1;
+    /**
+     * Bump when chunking, the contextual header or the chunk metadata change, so every document is re-ingested.
+     * v2: plain-text path, hard limit on code listings and tables, embedding_model metadata.
+     */
+    static final int ALGORITHM_VERSION = 2;
+
+    /**
+     * text-embedding-3-small accepts 8,191 tokens per input and Spring AI's batching keeps a 10% reserve, so no
+     * stored chunk may come near that, whatever {@code maxTokens} is.
+     */
+    private static final int MAX_EMBEDDABLE_TOKENS = 6_000;
+
+    /** A listing or table up to this many times {@code maxTokens} stays whole; a larger one is split by lines. */
+    private static final int ATOMIC_LIMIT_FACTOR = 4;
 
     private final RagProperties.Chunking settings;
     private final TokenCountEstimator tokens = new JTokkitTokenCountEstimator();
     private final TokenTextSplitter oversizedProseSplitter;
+    private final int atomicLimit;
 
     @Autowired
     public StructureAwareChunker(RagProperties properties) {
@@ -43,6 +56,7 @@ public class StructureAwareChunker {
                 .withMinChunkLengthToEmbed(1) // never drop a short tail: that would silently lose text
                 .withKeepSeparator(true)
                 .build();
+        this.atomicLimit = Math.min(ATOMIC_LIMIT_FACTOR * settings.maxTokens(), MAX_EMBEDDABLE_TOKENS);
     }
 
     /** Identifies the chunking configuration; part of each document's fingerprint. */
@@ -56,11 +70,26 @@ public class StructureAwareChunker {
 
         List<Piece> pieces = new ArrayList<>();
         for (SectionParser.Section section : parsed.sections()) {
-            for (String body : pack(blocks(section.body()))) {
+            for (String body : pack(blocks(section.body(), true))) {
                 pieces.add(new Piece(section.path(), body));
             }
         }
+        return toChunkedText(title, pieces);
+    }
 
+    /**
+     * For text without AsciiDoc or Markdown markup (.txt, or Tika output from PDF/HTML/DOCX): paragraphs only.
+     * A line of dashes or a leading '#' is ordinary text here, not a listing delimiter or a heading.
+     */
+    public ChunkedText chunkPlain(String text, String fallbackTitle) {
+        List<Piece> pieces = new ArrayList<>();
+        for (String body : pack(blocks(text.replace("\r\n", "\n"), false))) {
+            pieces.add(new Piece(List.of(), body));
+        }
+        return toChunkedText(fallbackTitle, pieces);
+    }
+
+    private ChunkedText toChunkedText(String title, List<Piece> pieces) {
         List<Piece> merged = mergeSmall(pieces);
         List<Chunk> chunks = new ArrayList<>(merged.size());
         for (int i = 0; i < merged.size(); i++) {
@@ -77,13 +106,14 @@ public class StructureAwareChunker {
     private record Block(String text, boolean atomic, int tokens) {
     }
 
-    private List<Block> blocks(String body) {
+    /** @param fences whether listing, literal and table delimiters make atomic blocks (markup) or not (plain text) */
+    private List<Block> blocks(String body, boolean fences) {
         List<Block> blocks = new ArrayList<>();
         List<String> lines = new ArrayList<>();
         boolean atomic = false;
         String openFence = null;
         for (String line : body.split("\n", -1)) {
-            String fence = SectionParser.fenceKey(line);
+            String fence = fences ? SectionParser.fenceKey(line) : null;
             if (openFence == null && line.isBlank()) {
                 addBlock(blocks, lines, atomic);
                 lines.clear();
@@ -119,8 +149,11 @@ public class StructureAwareChunker {
                 emit(out, window);
                 window = new ArrayList<>();
                 windowTokens = 0;
-                if (block.atomic()) {
+                if (block.atomic() && block.tokens() <= atomicLimit) {
                     out.add(block.text());
+                }
+                else if (block.atomic()) {
+                    out.addAll(splitByLines(block.text()));
                 }
                 else {
                     oversizedProseSplitter.split(new Document(block.text())).forEach(d -> out.add(d.getText()));
@@ -140,6 +173,34 @@ public class StructureAwareChunker {
             windowTokens += block.tokens();
         }
         emit(out, window);
+        return out;
+    }
+
+    /** Packs whole lines into pieces of at most {@code maxTokens}; a single overlong line falls back to tokens. */
+    private List<String> splitByLines(String text) {
+        List<String> out = new ArrayList<>();
+        StringBuilder piece = new StringBuilder();
+        for (String line : text.split("\n")) {
+            String candidate = piece.isEmpty() ? line : piece + "\n" + line;
+            if (tokens.estimate(candidate) <= settings.maxTokens()) {
+                piece.setLength(0);
+                piece.append(candidate);
+                continue;
+            }
+            if (!piece.isEmpty()) {
+                out.add(piece.toString());
+                piece.setLength(0);
+            }
+            if (tokens.estimate(line) <= settings.maxTokens()) {
+                piece.append(line);
+            }
+            else {
+                oversizedProseSplitter.split(new Document(line)).forEach(d -> out.add(d.getText()));
+            }
+        }
+        if (!piece.isEmpty()) {
+            out.add(piece.toString());
+        }
         return out;
     }
 

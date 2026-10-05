@@ -80,15 +80,45 @@ class StructureAwareChunkerTest {
     }
 
     @Test
-    void neverSplitsACodeListingEvenWhenItIsOversizedOrContainsBlankLines() {
-        String code = IntStream.range(0, 40).mapToObj(i -> "int value" + i + " = compute(" + i + ");").collect(joining("\n"));
+    void keepsAnOversizedCodeListingWholeUpToTheHardLimitEvenWithBlankLines() {
+        String code = IntStream.range(0, 12).mapToObj(i -> "int value" + i + " = compute(" + i + ");").collect(joining("\n"));
         String listing = "[source,java]\n----\n" + code + "\n\n// trailing comment after a blank line\n----";
+        assertThat(TOKENS.estimate(listing)).as("over maxTokens (40), under the hard limit (4 x 40)").isBetween(41, 160);
 
         List<Chunk> chunks = chunker(40, 0, 10)
                 .chunk("== Example\n\nIntro sentence.\n\n" + listing + "\n\nAfter the listing.", "doc")
                 .chunks();
 
         assertThat(chunks).extracting(Chunk::body).containsExactly("Intro sentence.", listing, "After the listing.");
+    }
+
+    @Test
+    void listingsBeyondTheHardLimitAreSplitAtLineBoundaries() {
+        List<String> lines = IntStream.range(0, 60).mapToObj(i -> "int value" + i + " = compute(" + i + ");").toList();
+        String listing = "----\n" + String.join("\n", lines) + "\n----";
+
+        List<Chunk> chunks = chunker(40, 0, 0).chunk("== Example\n\n" + listing, "doc").chunks();
+
+        assertThat(chunks).hasSizeGreaterThan(1);
+        assertThat(chunks).allSatisfy(chunk -> assertThat(chunk.tokenCount()).isLessThanOrEqualTo(40));
+        assertThat(chunks.stream().map(Chunk::body).collect(joining("\n")).lines().toList()).containsSubsequence(lines);
+    }
+
+    @Test
+    void plainTextIgnoresHeadingAndFenceSyntax() {
+        String paragraphs = IntStream.range(0, 12)
+                .mapToObj(i -> "Paragraph " + i + " describes how the store keeps embeddings next to the text.")
+                .collect(joining("\n\n"));
+
+        ChunkedText result = chunker(40, 0, 0).chunkPlain("# Not a heading\n\n" + "-".repeat(30) + "\n\n" + paragraphs, "notes");
+
+        assertThat(result.title()).isEqualTo("notes");
+        assertThat(result.chunks()).hasSizeGreaterThan(1);
+        assertThat(result.chunks()).allSatisfy(chunk -> {
+            assertThat(chunk.tokenCount()).isLessThanOrEqualTo(40);
+            assertThat(chunk.breadcrumb()).isEmpty();
+        });
+        assertThat(result.chunks().getFirst().body()).startsWith("# Not a heading");
     }
 
     @Test

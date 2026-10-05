@@ -20,6 +20,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.regex.Pattern;
 
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.VectorStore;
@@ -43,6 +44,9 @@ import com.learnings.rag.config.RagProperties;
  */
 @Service
 public class DocumentIngestionService {
+
+    /** AsciiDoc and Markdown carry headings and listings; anything else (.txt, Tika output) is plain paragraphs. */
+    private static final Pattern MARKUP = Pattern.compile("(?i).*\\.(adoc|asciidoc|md|markdown)$");
 
     private final VectorStore vectorStore;
     private final SourceDocumentRepository documents;
@@ -94,7 +98,8 @@ public class DocumentIngestionService {
 
         UUID id = existing.map(SourceDocument::id).orElseGet(UUID::randomUUID);
         List<String> previousChunkIds = documents.chunkIds(id);
-        ChunkedText chunked = chunker.chunk(text, fallbackTitle);
+        ChunkedText chunked = MARKUP.matcher(sourcePath).matches() ? chunker.chunk(text, fallbackTitle)
+                : chunker.chunkPlain(text, fallbackTitle);
         List<Document> chunks = chunked.chunks().stream()
                 .map(chunk -> toDocument(id, sourcePath, chunked.title(), chunk))
                 .toList();

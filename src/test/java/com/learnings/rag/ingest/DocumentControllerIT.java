@@ -1,6 +1,8 @@
 package com.learnings.rag.ingest;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.greaterThan;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
@@ -9,6 +11,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.nio.charset.StandardCharsets;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -84,6 +88,21 @@ class DocumentControllerIT {
         mvc.perform(multipart("/api/documents").file(file("../../etc/passwd.md", "Harmless text.")))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.document.sourcePath").value("uploads/passwd.md"));
+    }
+
+    @Test
+    void plainTextUploadIsChunkedByParagraphsEvenWithADashedSeparator() throws Exception {
+        // In AsciiDoc "-----" opens a listing; in a .txt (or Tika output from a PDF) it is just a separator line.
+        String paragraphs = IntStream.range(0, 30)
+                .mapToObj(i -> "Paragraph " + i + " talks about vector store tuning and index maintenance for retrieval.")
+                .collect(Collectors.joining("\n\n"));
+
+        mvc.perform(multipart("/api/documents").file(file("notes.txt", "Intro.\n\n" + "-".repeat(30) + "\n\n" + paragraphs)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.document.chunkCount", greaterThan(2)));
+        int largestChunk = jdbc.sql("SELECT max((metadata->>'token_count')::int) FROM vector_store")
+                .query(Integer.class).single();
+        assertThat(largestChunk).isLessThanOrEqualTo(200); // rag.chunking.max-tokens in the test profile
     }
 
     @Test
