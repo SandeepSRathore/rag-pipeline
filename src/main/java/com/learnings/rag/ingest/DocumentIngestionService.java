@@ -16,8 +16,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Pattern;
@@ -53,7 +51,11 @@ public class DocumentIngestionService {
     private final StructureAwareChunker chunker;
     private final String embeddingModel;
     private final TransactionTemplate transaction;
-    private final ConcurrentMap<String, Lock> pathLocks = new ConcurrentHashMap<>();
+    /**
+     * Striped by path hash: a fixed number of locks however many distinct paths are uploaded. Two paths that
+     * share a stripe merely wait for each other.
+     */
+    private final Lock[] pathLocks = new Lock[64];
 
     public DocumentIngestionService(VectorStore vectorStore, SourceDocumentRepository documents,
             StructureAwareChunker chunker, RagProperties properties, PlatformTransactionManager transactionManager) {
@@ -62,6 +64,9 @@ public class DocumentIngestionService {
         this.chunker = chunker;
         this.embeddingModel = properties.embeddingModel();
         this.transaction = new TransactionTemplate(transactionManager);
+        for (int i = 0; i < pathLocks.length; i++) {
+            pathLocks[i] = new ReentrantLock();
+        }
     }
 
     public record IngestOutcome(SourceDocument document, Status status) {
@@ -144,7 +149,7 @@ public class DocumentIngestionService {
     }
 
     private Lock lockFor(String sourcePath) {
-        return pathLocks.computeIfAbsent(sourcePath, path -> new ReentrantLock());
+        return pathLocks[Math.floorMod(sourcePath.hashCode(), pathLocks.length)];
     }
 
     /** Embeds and inserts the chunks; if that fails part-way, removes whatever was inserted and rethrows. */
