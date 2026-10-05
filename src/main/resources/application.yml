@@ -57,3 +57,10 @@ rag:
   retrieval:
     top-k: 5
     similarity-threshold: 0.0
+  eval:
+    golden-set: eval/golden-set.json         # reviewed by a human, committed
+    reports-dir: eval/reports                # gitignored
+    golden:
+      draft: eval/golden-set.draft.json      # gitignored; review it, then save as golden-set.json
+      size: 40
+      seed: 42
