@@ -204,3 +204,12 @@ Run TDD inside each milestone (superpowers:test-driven-development). Pause at M3
 4. **`AiConfig` is deferred to M5.** M0–M2 have a single `ChatClient`, built in `AnswerService`.
 5. **`spring.ai.openai.embedding.metadata-mode=none`.** The default (`embed`) prepends every metadata entry
    (UUIDs, counters) to the text before embedding.
+6. **The embedding model is part of the fingerprint** (`rag.embedding-model`), so switching models re-embeds instead of
+   mixing vector spaces.
+7. **Insert-then-swap updates.** Changed documents are embedded and inserted before the old chunks are deleted, and only
+   the swap is transactional. No OpenAI call holds a DB connection, and a failed embedding keeps the previous version.
+8. **`spring.mvc.async.request-timeout: 5m`**, because Tomcat's 30 s default would cut off long streamed answers.
+9. **Clients get generic error messages**; details are logged.
+
+**Scope decision (2026-10-05):** this stays a learning project. Production hardening (auth, document ACLs, rate limits,
+async ingestion jobs, CI eval gates, deployment) is intentionally out of scope.

@@ -21,23 +21,28 @@
 - `*Test` = pure unit tests that need no Docker (`./mvnw test`). `*IT` = Docker/Testcontainers tests (`./mvnw verify`).
 - Prompts live in `src/main/resources/prompts/*.st`.
 - Chunk metadata keys are only referenced through `ChunkMetadata` constants.
-- No auth; local learning project.
+- No auth; local learning project. Production hardening (auth, rate limits, async ingestion jobs, deployment) is out of scope.
+- Errors returned to clients are generic; exception details go to the server log only.
 
 **Spec amendments made while planning (also recorded in the spec):**
 1. `source_document.fingerprint` replaces `content_sha256`. It hashes the content *plus* the chunker settings, so re-tuning chunking re-ingests.
 2. Spring AI 2.0.1's `TokenTextSplitter` has no overlap option. Overlap is implemented by the chunker's paragraph packer; `TokenTextSplitter` is only the fallback for a single oversized prose paragraph.
 3. AsciiDoc tables (`|===`) are atomic, like code listings.
 4. `AiConfig` is deferred to M5 (only one `ChatClient` exists in M0–M2).
+5. `rag.embedding-model` is part of the fingerprint, so switching embedding models re-embeds the corpus instead of mixing two incompatible kinds of vectors in one table.
+6. New or changed chunks are embedded and inserted *before* the previous chunks are deleted. Only the swap runs in a transaction, so no OpenAI call ever holds a DB connection, and a failed embedding leaves the previous version searchable.
+7. `spring.mvc.async.request-timeout: 5m`. Tomcat's 30-second default would cut off long streamed answers.
+8. Clients get a generic error message; exception details stay in the server log.
 
 ## Review Focus
 
 Inputs the spec implies but doesn't spell out, most likely to bite first. Each one gets a test in the task that owns it:
 
-1. **Re-tuning `rag.chunking.*`** must re-chunk unchanged files, not silently keep old chunks. Covered by `fingerprintChangesWhenSettingsChange` (Task 3) and `changingChunkSettingsReingestsUnchangedFiles` (Task 4).
+1. **Re-tuning `rag.chunking.*` or switching the embedding model** must re-ingest unchanged files, not silently keep old chunks or mix vector spaces. Covered by `fingerprintChangesWhenSettingsChange` (Task 3), plus `changingChunkSettingsReingestsUnchangedFiles` and `changingTheEmbeddingModelReingestsUnchangedFiles` (Task 4).
 2. **A page removed from `corpus/`** must stop being retrieved and cited. Covered by `fileRemovedFromCorpusIsRemovedFromIndex` (Task 4).
 3. **A failed or empty corpus fetch** must not wipe the index. Covered by `emptyCorpusDirectoryIsRejectedInsteadOfWipingTheIndex` (Task 4).
 4. **Retrieved text containing `</source>` or injected instructions** must not escape its source tag. Covered by `sourceTextCannotCloseTheSourceTag` (Task 8).
-5. **Asking before anything is ingested** returns a fixed "not found" answer without calling the model. Covered by `emptyRetrievalAnswersWithoutCallingTheModel` (Task 8).
+5. **OpenAI failing during a re-ingest** (invalid key, 429, outage) must leave the previous version searchable. Covered by `failedEmbeddingLeavesThePreviousVersionIntact` (Task 4).
 
 ---
 
@@ -91,7 +96,7 @@ src/test/resources/fixtures/corpus/{pgvector.adoc, chat-client.adoc}
 - Generated: `mvnw`, `mvnw.cmd`, `.mvn/wrapper/maven-wrapper.properties`
 
 **Interfaces:**
-- Produces: `RagProperties(Path corpusDir, Chunking chunking, Retrieval retrieval)`; `RagProperties.Chunking(int maxTokens, int minTokens, int overlapTokens)`; `RagProperties.Retrieval(int topK, double similarityThreshold)`.
+- Produces: `RagProperties(Path corpusDir, String embeddingModel, Chunking chunking, Retrieval retrieval)`; `RagProperties.Chunking(int maxTokens, int minTokens, int overlapTokens)`; `RagProperties.Retrieval(int topK, double similarityThreshold)`.
 - Produces (test): `@RagIntegrationTest` (SpringBootTest + MockMvc + `test` profile + Testcontainers + fake AI beans); `FakeEmbeddingModel` (public, 1536-d, deterministic); `TestAiConfiguration` (Task 8 adds a `StubChatModel` bean to it).
 - Produces (schema): `vector_store(id uuid, content text, metadata json, embedding vector(1536), content_tsv tsvector generated)`; `source_document(id, source_path unique, title, fingerprint, chunk_count, origin, ingested_at)`.
 
@@ -279,6 +284,9 @@ spring:
   mvc:
     problemdetails:
       enabled: true
+    async:
+      # Streamed answers can outlive Tomcat's 30 s default async timeout, especially with reasoning models.
+      request-timeout: 5m
   servlet:
     multipart:
       max-file-size: 20MB
@@ -312,6 +320,7 @@ management:
 
 rag:
   corpus-dir: corpus
+  embedding-model: ${spring.ai.openai.embedding.options.model}
   chunking:
     max-tokens: 500
     min-tokens: 50
@@ -386,11 +395,14 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 
 /**
  * @param corpusDir directory scanned by {@code POST /api/ingest/corpus}; filled by scripts/fetch-corpus.sh
+ * @param embeddingModel identifies the embedding model; part of every document fingerprint, so switching models
+ *        re-embeds the corpus instead of mixing incompatible vectors
  * @param chunking how documents are cut into retrievable chunks
  * @param retrieval how many chunks are retrieved per question
  */
 @ConfigurationProperties("rag")
 public record RagProperties(@DefaultValue("corpus") Path corpusDir,
+        @DefaultValue("unknown") String embeddingModel,
         @DefaultValue Chunking chunking,
         @DefaultValue Retrieval retrieval) {
 
@@ -434,6 +446,7 @@ spring:
 
 rag:
   corpus-dir: target/no-corpus-in-tests
+  embedding-model: fake-bag-of-words
   chunking:
     max-tokens: 200
     min-tokens: 5
@@ -1354,8 +1367,8 @@ git commit -m "feat: structure-aware chunker with overlap, atomic code blocks an
 - Produces:
   - `ChunkMetadata.{SOURCE_ID, SOURCE_PATH, TITLE, BREADCRUMB, CHUNK_INDEX, TOKEN_COUNT}`.
   - `record SourceDocument(UUID id, String sourcePath, String title, String fingerprint, int chunkCount, Origin origin, Instant ingestedAt)` with `enum Origin { CORPUS, UPLOAD }`.
-  - `SourceDocumentRepository`: `findById(UUID)`, `findBySourcePath(String)` (both return `Optional<SourceDocument>`), `findAll()`, `findByOrigin(Origin)` (both return `List<SourceDocument>`), `save(SourceDocument)`, `deleteById(UUID)`.
-  - `DocumentIngestionService(VectorStore, SourceDocumentRepository, StructureAwareChunker)`: `IngestOutcome ingest(String sourcePath, String fallbackTitle, String text, Origin origin)` and `boolean delete(UUID id)`. `record IngestOutcome(SourceDocument document, Status status)` has `int chunksWritten()`; `enum Status { ADDED, UPDATED, SKIPPED }`.
+  - `SourceDocumentRepository`: `findById(UUID)`, `findBySourcePath(String)` (both return `Optional<SourceDocument>`), `findAll()`, `findByOrigin(Origin)` (both return `List<SourceDocument>`), `save(SourceDocument)`, `deleteById(UUID)`, `chunkIds(UUID sourceId)` (returns `List<String>`).
+  - `DocumentIngestionService(VectorStore, SourceDocumentRepository, StructureAwareChunker, RagProperties, PlatformTransactionManager)`: `IngestOutcome ingest(String sourcePath, String fallbackTitle, String text, Origin origin)` and `boolean delete(UUID id)`. `record IngestOutcome(SourceDocument document, Status status)` has `int chunksWritten()`; `enum Status { ADDED, UPDATED, SKIPPED }`.
   - `CorpusIngestor`: `CorpusReport ingestDirectory(Path directory) throws IOException`; `record CorpusReport(int added, int updated, int skipped, int removed, int chunksWritten)`. Throws `CorpusUnavailableException` for a missing directory or one with no `.adoc`/`.md` files.
 
 - [ ] **Step 1: Add the fixtures**
@@ -1447,10 +1460,18 @@ import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.ai.document.Document;
+import org.springframework.ai.embedding.EmbeddingModel;
+import org.springframework.ai.embedding.EmbeddingRequest;
+import org.springframework.ai.embedding.EmbeddingResponse;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.ai.vectorstore.pgvector.PgVectorStore;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.NestedExceptionUtils;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import com.learnings.rag.RagIntegrationTest;
 import com.learnings.rag.config.RagProperties;
@@ -1472,6 +1493,15 @@ class IngestionIT {
 
     @Autowired
     JdbcClient jdbc;
+
+    @Autowired
+    JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    PlatformTransactionManager transactionManager;
+
+    @Autowired
+    RagProperties properties;
 
     @TempDir
     Path corpus;
@@ -1538,14 +1568,43 @@ class IngestionIT {
     @Test
     void changingChunkSettingsReingestsUnchangedFiles() throws IOException {
         corpusIngestor.ingestDirectory(corpus);
-        DocumentIngestionService retuned = new DocumentIngestionService(vectorStore, documents,
-                new StructureAwareChunker(new RagProperties.Chunking(80, 5, 20)));
+        DocumentIngestionService retuned = ingestionService(vectorStore,
+                new StructureAwareChunker(new RagProperties.Chunking(80, 5, 20)), properties.embeddingModel());
 
-        Status status = retuned.ingest("pgvector.adoc", "pgvector", Files.readString(corpus.resolve("pgvector.adoc")),
-                Origin.CORPUS).status();
-
-        assertThat(status).isEqualTo(Status.UPDATED);
+        assertThat(reingestPgvector(retuned)).isEqualTo(Status.UPDATED);
         assertThat(vectorRows()).isEqualTo(sumOfChunkCounts());
+    }
+
+    @Test
+    void changingTheEmbeddingModelReingestsUnchangedFiles() throws IOException {
+        corpusIngestor.ingestDirectory(corpus);
+        DocumentIngestionService otherModel = ingestionService(vectorStore, new StructureAwareChunker(properties),
+                "another-embedding-model");
+
+        assertThat(reingestPgvector(otherModel)).isEqualTo(Status.UPDATED);
+        assertThat(vectorRows()).isEqualTo(sumOfChunkCounts());
+    }
+
+    @Test
+    void failedEmbeddingLeavesThePreviousVersionIntact() throws IOException {
+        corpusIngestor.ingestDirectory(corpus);
+        int rowsBefore = vectorRows();
+        String fingerprintBefore = documents.findBySourcePath("pgvector.adoc").orElseThrow().fingerprint();
+        VectorStore failingStore = PgVectorStore.builder(jdbcTemplate, new FailingEmbeddingModel())
+                .dimensions(1536)
+                .initializeSchema(false)
+                .build();
+        DocumentIngestionService failing = ingestionService(failingStore, new StructureAwareChunker(properties),
+                properties.embeddingModel());
+
+        assertThatThrownBy(() -> failing.ingest("pgvector.adoc", "pgvector", "= PGvector\n\nA zebracorn rewrite.",
+                Origin.CORPUS))
+                .satisfies(e -> assertThat(NestedExceptionUtils.getMostSpecificCause(e))
+                        .hasMessage("embedding service unavailable"));
+
+        assertThat(vectorRows()).isEqualTo(rowsBefore);
+        assertThat(rowsContaining("zebracorn")).isZero();
+        assertThat(documents.findBySourcePath("pgvector.adoc").orElseThrow().fingerprint()).isEqualTo(fingerprintBefore);
     }
 
     @Test
@@ -1583,6 +1642,37 @@ class IngestionIT {
     private int rowsContaining(String word) {
         return jdbc.sql("SELECT count(*)::int FROM vector_store WHERE content ILIKE '%' || :word || '%'")
                 .param("word", word).query(Integer.class).single();
+    }
+
+    private Status reingestPgvector(DocumentIngestionService service) throws IOException {
+        return service.ingest("pgvector.adoc", "pgvector", Files.readString(corpus.resolve("pgvector.adoc")),
+                Origin.CORPUS).status();
+    }
+
+    private DocumentIngestionService ingestionService(VectorStore store, StructureAwareChunker chunker,
+            String embeddingModel) {
+        RagProperties withModel = new RagProperties(properties.corpusDir(), embeddingModel, properties.chunking(),
+                properties.retrieval());
+        return new DocumentIngestionService(store, documents, chunker, withModel, transactionManager);
+    }
+
+    /** Simulates OpenAI being unreachable or rejecting the API key. */
+    static class FailingEmbeddingModel implements EmbeddingModel {
+
+        @Override
+        public EmbeddingResponse call(EmbeddingRequest request) {
+            throw new IllegalStateException("embedding service unavailable");
+        }
+
+        @Override
+        public float[] embed(Document document) {
+            throw new IllegalStateException("embedding service unavailable");
+        }
+
+        @Override
+        public int dimensions() {
+            return 1536;
+        }
     }
 }
 ```
@@ -1704,6 +1794,12 @@ public class SourceDocumentRepository {
                 .update();
     }
 
+    /** IDs of the vector_store rows that belong to a document. */
+    public List<String> chunkIds(UUID sourceId) {
+        return jdbc.sql("SELECT id::text FROM vector_store WHERE metadata->>'source_id' = ?")
+                .param(sourceId.toString()).query(String.class).list();
+    }
+
     public void deleteById(UUID id) {
         jdbc.sql("DELETE FROM source_document WHERE id = ?").param(id).update();
     }
@@ -1734,13 +1830,22 @@ import java.util.UUID;
 
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.VectorStore;
-import org.springframework.ai.vectorstore.filter.FilterExpressionBuilder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
+
+import com.learnings.rag.config.RagProperties;
 
 /**
- * Writes one document's chunks to the vector store. Re-ingesting unchanged content (same fingerprint) is a
- * no-op; changed content replaces the old chunks in the same transaction, so readers never see a mix.
+ * Writes one document's chunks to the vector store.
+ * <ul>
+ * <li>Unchanged content (same fingerprint) is skipped.</li>
+ * <li>New or changed content is embedded and inserted <em>before</em> the previous chunks are removed, so the slow
+ * OpenAI call never holds a database transaction open, and a failed embedding leaves the previous version
+ * searchable. Only the swap (delete previous chunks, update the document row) is transactional; between insert
+ * and swap a search may briefly see both versions.</li>
+ * </ul>
  */
 @Service
 public class DocumentIngestionService {
@@ -1748,12 +1853,16 @@ public class DocumentIngestionService {
     private final VectorStore vectorStore;
     private final SourceDocumentRepository documents;
     private final StructureAwareChunker chunker;
+    private final String embeddingModel;
+    private final TransactionTemplate transaction;
 
     public DocumentIngestionService(VectorStore vectorStore, SourceDocumentRepository documents,
-            StructureAwareChunker chunker) {
+            StructureAwareChunker chunker, RagProperties properties, PlatformTransactionManager transactionManager) {
         this.vectorStore = vectorStore;
         this.documents = documents;
         this.chunker = chunker;
+        this.embeddingModel = properties.embeddingModel();
+        this.transaction = new TransactionTemplate(transactionManager);
     }
 
     public record IngestOutcome(SourceDocument document, Status status) {
@@ -1767,27 +1876,29 @@ public class DocumentIngestionService {
         }
     }
 
-    @Transactional
     public IngestOutcome ingest(String sourcePath, String fallbackTitle, String text, SourceDocument.Origin origin) {
-        String fingerprint = sha256(chunker.fingerprint() + "\n" + text);
+        // Vectors from different embedding models live in different spaces and must never be compared,
+        // so the model is part of the fingerprint alongside the chunker settings.
+        String fingerprint = sha256(embeddingModel + "\n" + chunker.fingerprint() + "\n" + text);
         Optional<SourceDocument> existing = documents.findBySourcePath(sourcePath);
         if (existing.isPresent() && existing.get().fingerprint().equals(fingerprint)) {
             return new IngestOutcome(existing.get(), IngestOutcome.Status.SKIPPED);
         }
-        existing.ifPresent(document -> deleteChunks(document.id()));
 
         UUID id = existing.map(SourceDocument::id).orElseGet(UUID::randomUUID);
+        List<String> previousChunkIds = documents.chunkIds(id);
         ChunkedText chunked = chunker.chunk(text, fallbackTitle);
         List<Document> chunks = chunked.chunks().stream()
                 .map(chunk -> toDocument(id, sourcePath, chunked.title(), chunk))
                 .toList();
-        if (!chunks.isEmpty()) {
-            vectorStore.add(chunks); // embeds every chunk (one OpenAI call per batch)
-        }
+        insertOrUndo(chunks);
 
         SourceDocument saved = new SourceDocument(id, sourcePath, chunked.title(), fingerprint, chunks.size(), origin,
                 Instant.now());
-        documents.save(saved);
+        transaction.executeWithoutResult(status -> {
+            deleteChunks(previousChunkIds);
+            documents.save(saved);
+        });
         return new IngestOutcome(saved, existing.isPresent() ? IngestOutcome.Status.UPDATED : IngestOutcome.Status.ADDED);
     }
 
@@ -1796,13 +1907,34 @@ public class DocumentIngestionService {
         if (documents.findById(id).isEmpty()) {
             return false;
         }
-        deleteChunks(id);
+        deleteChunks(documents.chunkIds(id));
         documents.deleteById(id);
         return true;
     }
 
-    private void deleteChunks(UUID sourceId) {
-        vectorStore.delete(new FilterExpressionBuilder().eq(SOURCE_ID, sourceId.toString()).build());
+    /** Embeds and inserts the chunks; if that fails part-way, removes whatever was inserted and rethrows. */
+    private void insertOrUndo(List<Document> chunks) {
+        if (chunks.isEmpty()) {
+            return;
+        }
+        try {
+            vectorStore.add(chunks); // embeds every chunk: the slow, failure-prone OpenAI call
+        }
+        catch (RuntimeException e) {
+            try {
+                deleteChunks(chunks.stream().map(Document::getId).toList());
+            }
+            catch (RuntimeException cleanupFailure) {
+                e.addSuppressed(cleanupFailure);
+            }
+            throw e;
+        }
+    }
+
+    private void deleteChunks(List<String> chunkIds) {
+        if (!chunkIds.isEmpty()) {
+            vectorStore.delete(chunkIds);
+        }
     }
 
     private static Document toDocument(UUID sourceId, String sourcePath, String title, Chunk chunk) {
@@ -1942,13 +2074,13 @@ public class CorpusIngestor {
 - [ ] **Step 5: Run the test and watch it pass**
 
 Run: `./mvnw -q verify -Dit.test=IngestionIT -Dtest=skip -Dsurefire.failIfNoSpecifiedTests=false`
-Expected: PASS (6 tests).
+Expected: PASS (8 tests).
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add src/main/java/com/learnings/rag/ingest src/test/java/com/learnings/rag/ingest/IngestionIT.java src/test/resources/fixtures
-git commit -m "feat: idempotent corpus ingestion with fingerprints, sync deletes and transactional replace"
+git commit -m "feat: idempotent corpus ingestion: fingerprints, sync deletes, insert-then-swap updates"
 ```
 
 ---
@@ -2295,7 +2427,7 @@ public class DocumentController {
 - [ ] **Step 8: Run all ingest tests and watch them pass**
 
 Run: `./mvnw -q verify -Dit.test='IngestionIT,DocumentControllerIT' -Dtest='TextExtractorTest'`
-Expected: PASS (4 unit tests + 12 integration tests).
+Expected: PASS (4 unit tests + 14 integration tests).
 
 - [ ] **Step 9: Commit**
 
@@ -2684,7 +2816,7 @@ git commit -m "feat: traced vector-only retrieval pipeline (naive baseline)"
     - `Token(String text)`;
     - `Done(Integer promptTokens, Integer completionTokens, long retrievalMillis, long generationMillis)`;
     - `Error(String message)`.
-  - `AnswerService(RetrievalPipeline, PromptAssembler, ChatClient.Builder)`, with `Flux<ChatEvent> answer(String question)` and `public static final String NO_SOURCES_ANSWER`.
+  - `AnswerService(RetrievalPipeline, PromptAssembler, ChatClient.Builder)`, with `Flux<ChatEvent> answer(String question)` and the constants `NO_SOURCES_ANSWER` and `ANSWER_FAILED`.
   - Test: `StubChatModel(String... chunks)`, `static StubChatModel failingAfter(RuntimeException, String...)` and `List<Prompt> prompts()`.
 
 - [ ] **Step 1: Write the system prompt `src/main/resources/prompts/answer-system.st`**
@@ -2984,22 +3116,22 @@ class AnswerServiceTest {
     }
 
     @Test
-    void modelFailureMidStreamEndsWithAnErrorEvent() {
+    void modelFailureMidStreamEndsWithAGenericErrorEvent() {
         when(pipeline.retrieve(anyString())).thenReturn(oneChunk());
         StubChatModel model = StubChatModel.failingAfter(new IllegalStateException("rate limited"), "Partial ");
 
         StepVerifier.create(service(model).answer("q"))
                 .expectNextMatches(ChatEvent.Sources.class::isInstance)
-                .expectNext(new ChatEvent.Token("Partial "), new ChatEvent.Error("rate limited"))
+                .expectNext(new ChatEvent.Token("Partial "), new ChatEvent.Error(AnswerService.ANSWER_FAILED)) // "rate limited" stays in the log
                 .verifyComplete();
     }
 
     @Test
-    void retrievalFailureBecomesAnErrorEvent() {
+    void retrievalFailureBecomesAGenericErrorEvent() {
         when(pipeline.retrieve(anyString())).thenThrow(new IllegalStateException("database down"));
 
         StepVerifier.create(service(new StubChatModel()).answer("q"))
-                .expectNext(new ChatEvent.Error("database down"))
+                .expectNext(new ChatEvent.Error(AnswerService.ANSWER_FAILED))
                 .verifyComplete();
     }
 }
@@ -3099,7 +3231,6 @@ import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.document.Document;
-import org.springframework.core.NestedExceptionUtils;
 import org.springframework.stereotype.Service;
 
 import com.learnings.rag.retrieval.RetrievalPipeline;
@@ -3115,6 +3246,9 @@ public class AnswerService {
 
     public static final String NO_SOURCES_ANSWER =
             "I couldn't find anything about that in the indexed documentation. Try rephrasing, or ingest the relevant documents first.";
+
+    public static final String ANSWER_FAILED =
+            "Sorry, the answer could not be generated. The server log has the details.";
 
     private static final Logger log = LoggerFactory.getLogger(AnswerService.class);
 
@@ -3134,8 +3268,9 @@ public class AnswerService {
                 .subscribeOn(Schedulers.boundedElastic()) // JDBC + embedding call are blocking
                 .flatMapMany(retrieval -> generate(question, retrieval))
                 .onErrorResume(error -> {
-                    log.warn("Answering failed for question: {}", question, error);
-                    return Flux.just(new ChatEvent.Error(NestedExceptionUtils.getMostSpecificCause(error).getMessage()));
+                    // Details (SQL errors, API error bodies) stay in the log; the browser gets a generic message.
+                    log.error("Answering failed for question: {}", question, error);
+                    return Flux.just(new ChatEvent.Error(ANSWER_FAILED));
                 });
     }
 
@@ -3717,7 +3852,8 @@ curl -X POST localhost:8080/api/ingest/corpus
 open http://localhost:8080
 ```
 
-`OPENAI_CHAT_MODEL` overrides the chat model (default `gpt-5-mini`).
+`OPENAI_CHAT_MODEL` overrides the chat model (default `gpt-5-mini`). If the UI says an answer could not be
+generated, the reason (e.g. an invalid API key) is in the application log.
 
 ## API
 
