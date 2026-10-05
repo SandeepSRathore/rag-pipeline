@@ -9,7 +9,8 @@ target/
 .vscode/
 
 # RAG pipeline
-corpus/
+# Root only: src/test/resources/fixtures/corpus/ holds committed test fixtures.
+/corpus/
 eval/reports/
 eval/golden-set.draft.json
 .env

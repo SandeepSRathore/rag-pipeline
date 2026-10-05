@@ -1,0 +1,35 @@
+= PGvector
+
+PGvector is an open-source extension for PostgreSQL that enables storing and searching over machine learning-generated embeddings.
+
+== Prerequisites
+
+You need access to a PostgreSQL instance with the `vector`, `hstore` and `uuid-ossp` extensions.
+
+== Configuration properties
+
+You can use the following properties in your Spring Boot configuration to customize the PGVector vector store.
+
+|===
+|Property |Description |Default value
+
+|`spring.ai.vectorstore.pgvector.index-type` |Nearest neighbor search index type. Options are `NONE`, `IVFFlat` and `HNSW`. |HNSW
+|`spring.ai.vectorstore.pgvector.distance-type` |Search distance type. Defaults to `COSINE_DISTANCE`. |COSINE_DISTANCE
+|`spring.ai.vectorstore.pgvector.dimensions` |Embeddings dimension. |-1
+|===
+
+=== HNSW index
+
+The HNSW index type builds a multilayer graph. It has better query performance than IVFFlat but slower build times and uses more memory.
+
+== Metadata filtering
+
+You can leverage the generic, portable metadata filters with the PgVector store.
+
+[source,java]
+----
+vectorStore.similaritySearch(SearchRequest.builder()
+    .query("The World")
+    .filterExpression("author in ['john', 'jill'] && article_type == 'blog'")
+    .build());
+----

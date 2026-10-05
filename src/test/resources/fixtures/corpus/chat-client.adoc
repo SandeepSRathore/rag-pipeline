@@ -1,0 +1,24 @@
+= Chat Client API
+
+The `ChatClient` offers a fluent API for communicating with an AI Model. It supports both a synchronous and streaming programming model.
+
+== Creating a ChatClient
+
+The `ChatClient` is created using a `ChatClient.Builder` object. You can obtain an autoconfigured `ChatClient.Builder` instance for any ChatModel Spring Boot autoconfiguration or create one programmatically.
+
+[source,java]
+----
+@RestController
+class MyController {
+
+    private final ChatClient chatClient;
+
+    public MyController(ChatClient.Builder chatClientBuilder) {
+        this.chatClient = chatClientBuilder.build();
+    }
+}
+----
+
+== Streaming responses
+
+The `stream()` method lets you get an asynchronous response as a `Flux<String>`.
