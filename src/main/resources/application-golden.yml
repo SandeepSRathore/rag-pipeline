@@ -1,0 +1,5 @@
+# ./mvnw spring-boot:run -Dspring-boot.run.profiles=golden
+# Drafts eval/golden-set.draft.json from the indexed corpus, then exits. No web server.
+spring:
+  main:
+    web-application-type: none
