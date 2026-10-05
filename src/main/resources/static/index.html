@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Spring AI Docs Assistant</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header>
+  <h1>Spring AI Docs Assistant</h1>
+  <nav>
+    <button type="button" class="tab active" data-tab="chat">Ask</button>
+    <button type="button" class="tab" data-tab="docs">Documents</button>
+  </nav>
+</header>
+<main>
+  <section id="chat" class="panel active">
+    <form id="ask-form">
+      <textarea id="question" rows="3" maxlength="2000" required
+                placeholder="e.g. How do I configure the HNSW index for PGvector?  (⌘/Ctrl + Enter to ask)"></textarea>
+      <button type="submit" id="ask-button">Ask</button>
+    </form>
+    <div id="status" class="status" role="status"></div>
+    <article id="answer" class="answer" aria-live="polite"></article>
+    <div id="stats" class="stats"></div>
+    <h2 id="sources-heading" hidden>Sources</h2>
+    <ol id="sources" class="sources"></ol>
+  </section>
+
+  <section id="docs" class="panel">
+    <div class="toolbar">
+      <button type="button" id="ingest-corpus">Ingest corpus folder</button>
+      <form id="upload-form">
+        <input type="file" id="file" accept=".adoc,.asciidoc,.md,.markdown,.txt,.pdf,.html,.htm,.docx" required>
+        <button type="submit">Upload</button>
+      </form>
+    </div>
+    <div id="docs-status" class="status" role="status"></div>
+    <div id="doc-count" class="stats"></div>
+    <table>
+      <thead><tr><th>Source</th><th>Title</th><th>Chunks</th><th>Origin</th><th>Ingested</th><th></th></tr></thead>
+      <tbody id="doc-rows"></tbody>
+    </table>
+  </section>
+</main>
+<script src="app.js"></script>
+</body>
+</html>

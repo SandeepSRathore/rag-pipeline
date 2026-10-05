@@ -1,0 +1,20 @@
+spring:
+  ai:
+    model:
+      chat: none
+      embedding: none
+      image: none
+      moderation: none
+      audio:
+        speech: none
+        transcription: none
+    openai:
+      api-key: test-key-not-used
+
+rag:
+  corpus-dir: target/no-corpus-in-tests
+  embedding-model: fake-bag-of-words
+  chunking:
+    max-tokens: 200
+    min-tokens: 5
+    overlap-tokens: 30
