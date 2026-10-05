@@ -9,6 +9,8 @@ public final class ChunkMetadata {
     public static final String BREADCRUMB = "breadcrumb";
     public static final String CHUNK_INDEX = "chunk_index";
     public static final String TOKEN_COUNT = "token_count";
+    /** The model that produced the chunk's vector; retrieval only compares vectors from the current model. */
+    public static final String EMBEDDING_MODEL = "embedding_model";
 
     private ChunkMetadata() {
     }

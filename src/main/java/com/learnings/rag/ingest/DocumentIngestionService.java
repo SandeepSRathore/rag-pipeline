@@ -2,6 +2,7 @@ package com.learnings.rag.ingest;
 
 import static com.learnings.rag.ingest.ChunkMetadata.BREADCRUMB;
 import static com.learnings.rag.ingest.ChunkMetadata.CHUNK_INDEX;
+import static com.learnings.rag.ingest.ChunkMetadata.EMBEDDING_MODEL;
 import static com.learnings.rag.ingest.ChunkMetadata.SOURCE_ID;
 import static com.learnings.rag.ingest.ChunkMetadata.SOURCE_PATH;
 import static com.learnings.rag.ingest.ChunkMetadata.TITLE;
@@ -181,7 +182,7 @@ public class DocumentIngestionService {
         }
     }
 
-    private static Document toDocument(UUID sourceId, String sourcePath, String title, Chunk chunk) {
+    private Document toDocument(UUID sourceId, String sourcePath, String title, Chunk chunk) {
         return Document.builder()
                 .text(chunk.contextualText(title))
                 .metadata(Map.<String, Object>of(
@@ -190,7 +191,8 @@ public class DocumentIngestionService {
                         TITLE, title,
                         BREADCRUMB, chunk.breadcrumb(),
                         CHUNK_INDEX, chunk.index(),
-                        TOKEN_COUNT, chunk.tokenCount()))
+                        TOKEN_COUNT, chunk.tokenCount(),
+                        EMBEDDING_MODEL, embeddingModel))
                 .build();
     }
 

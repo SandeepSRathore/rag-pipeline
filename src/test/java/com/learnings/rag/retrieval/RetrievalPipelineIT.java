@@ -12,11 +12,18 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import com.learnings.rag.RagIntegrationTest;
 import com.learnings.rag.ingest.ChunkMetadata;
+import com.learnings.rag.config.RagProperties;
 import com.learnings.rag.ingest.CorpusIngestor;
+import com.learnings.rag.ingest.DocumentIngestionService;
+import com.learnings.rag.ingest.SourceDocument.Origin;
+import com.learnings.rag.ingest.SourceDocumentRepository;
+import com.learnings.rag.ingest.StructureAwareChunker;
 
 @RagIntegrationTest
 class RetrievalPipelineIT {
@@ -29,6 +36,18 @@ class RetrievalPipelineIT {
 
     @Autowired
     JdbcClient jdbc;
+
+    @Autowired
+    VectorStore vectorStore;
+
+    @Autowired
+    SourceDocumentRepository documents;
+
+    @Autowired
+    RagProperties properties;
+
+    @Autowired
+    PlatformTransactionManager transactionManager;
 
     @TempDir
     Path corpus;
@@ -55,6 +74,23 @@ class RetrievalPipelineIT {
             assertThat(stage.name()).isEqualTo("vector");
             assertThat(stage.hits()).hasSameSizeAs(result.documents());
         });
+    }
+
+    @Test
+    void ignoresChunksEmbeddedByAnotherModel() {
+        // e.g. an upload from before an embedding-model switch: its vectors live in a different space.
+        RagProperties retiredModel = new RagProperties(properties.corpusDir(), "retired-embedding-model",
+                properties.chunking(), properties.retrieval());
+        new DocumentIngestionService(vectorStore, documents, new StructureAwareChunker(properties), retiredModel,
+                transactionManager)
+                .ingest("uploads/hnsw-notes.md", "hnsw-notes",
+                        "# HNSW notes\n\nWhich index type is HNSW and how does it build its graph?", Origin.UPLOAD);
+
+        RetrievalResult result = pipeline.retrieve("Which index type is HNSW and how does it build its graph?");
+
+        assertThat(result.documents()).isNotEmpty()
+                .extracting(document -> document.getMetadata().get(ChunkMetadata.SOURCE_PATH))
+                .doesNotContain("uploads/hnsw-notes.md");
     }
 
     @Test
