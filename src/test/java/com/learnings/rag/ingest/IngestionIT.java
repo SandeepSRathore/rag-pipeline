@@ -84,7 +84,7 @@ class IngestionIT {
 
         CorpusReport second = corpusIngestor.ingestDirectory(corpus);
 
-        assertThat(second).isEqualTo(new CorpusReport(0, 0, 2, 0, 0));
+        assertThat(second).isEqualTo(new CorpusReport(0, 0, 2, 0, 0, List.of()));
         assertThat(vectorRows()).isEqualTo(first.chunksWritten());
     }
 
@@ -113,6 +113,21 @@ class IngestionIT {
         assertThat(report.removed()).isEqualTo(1);
         assertThat(jdbc.sql("SELECT count(*)::int FROM vector_store WHERE metadata->>'source_path' = 'chat-client.adoc'")
                 .query(Integer.class).single()).isZero();
+        assertThat(documents.findBySourcePath("chat-client.adoc")).isEmpty();
+    }
+
+    @Test
+    void oneUnreadableFileDoesNotStopTheRestOfTheSync() throws IOException {
+        corpusIngestor.ingestDirectory(corpus);
+        Files.delete(corpus.resolve("chat-client.adoc"));
+        // Invalid UTF-8, and "broken.md" sorts before every other file.
+        Files.write(corpus.resolve("broken.md"), new byte[] { '#', ' ', (byte) 0xC3, (byte) 0x28 });
+
+        CorpusReport report = corpusIngestor.ingestDirectory(corpus);
+
+        assertThat(report.failed()).containsExactly("broken.md");
+        assertThat(report.skipped()).isEqualTo(1);
+        assertThat(report.removed()).isEqualTo(1);
         assertThat(documents.findBySourcePath("chat-client.adoc")).isEmpty();
     }
 

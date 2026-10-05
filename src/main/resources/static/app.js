@@ -177,8 +177,9 @@ $('#ingest-corpus').addEventListener('click', async (e) => {
     const response = await fetch('/api/ingest/corpus', { method: 'POST' });
     if (!response.ok) throw new Error(await problemMessage(response));
     const r = await response.json();
+    const failed = r.failed.length > 0 ? ` · failed (see server log): ${r.failed.join(', ')}` : '';
     $('#docs-status').textContent =
-      `Added ${r.added}, updated ${r.updated}, unchanged ${r.skipped}, removed ${r.removed} · ${r.chunksWritten} chunks embedded`;
+      `Added ${r.added}, updated ${r.updated}, unchanged ${r.skipped}, removed ${r.removed} · ${r.chunksWritten} chunks embedded${failed}`;
   } catch (error) {
     $('#docs-status').textContent = `Error: ${error.message}`;
   } finally {

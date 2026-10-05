@@ -4,6 +4,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -29,7 +30,12 @@ public class CorpusIngestor {
         this.documents = documents;
     }
 
-    public record CorpusReport(int added, int updated, int skipped, int removed, int chunksWritten) {
+    /**
+     * @param failed corpus-relative paths that could not be ingested (details in the server log); a failed file's
+     *        previous version, if any, stays indexed
+     */
+    public record CorpusReport(int added, int updated, int skipped, int removed, int chunksWritten,
+            List<String> failed) {
     }
 
     public CorpusReport ingestDirectory(Path directory) throws IOException {
@@ -51,11 +57,21 @@ public class CorpusIngestor {
         int skipped = 0;
         int chunksWritten = 0;
         Set<String> seen = new HashSet<>();
+        List<String> failed = new ArrayList<>();
         for (Path file : files) {
             String sourcePath = directory.relativize(file).toString().replace(File.separatorChar, '/');
-            seen.add(sourcePath);
-            IngestOutcome outcome = ingestion.ingest(sourcePath, baseName(file), Files.readString(file),
-                    SourceDocument.Origin.CORPUS);
+            seen.add(sourcePath); // still present even if it fails below, so it is not removed from the index
+            IngestOutcome outcome;
+            try {
+                outcome = ingestion.ingest(sourcePath, baseName(file), Files.readString(file),
+                        SourceDocument.Origin.CORPUS);
+            }
+            catch (IOException | RuntimeException e) {
+                // One bad page (not UTF-8, embedding rejected) must not block the other pages or the removals.
+                log.error("Could not ingest {}", sourcePath, e);
+                failed.add(sourcePath);
+                continue;
+            }
             chunksWritten += outcome.chunksWritten();
             switch (outcome.status()) {
                 case ADDED -> added++;
@@ -72,7 +88,7 @@ public class CorpusIngestor {
             }
         }
 
-        CorpusReport report = new CorpusReport(added, updated, skipped, removed, chunksWritten);
+        CorpusReport report = new CorpusReport(added, updated, skipped, removed, chunksWritten, List.copyOf(failed));
         log.info("Corpus ingest: {}", report);
         return report;
     }
