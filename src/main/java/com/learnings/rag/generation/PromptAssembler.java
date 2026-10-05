@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.regex.Pattern;
 
 import org.springframework.ai.document.Document;
 import org.springframework.beans.factory.annotation.Value;
@@ -16,6 +17,9 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class PromptAssembler {
+
+    /** Any opening or closing source(s) tag, in any case and with stray whitespace ("< /SOURCE >"). */
+    private static final Pattern SOURCE_TAG = Pattern.compile("(?i)<(\\s*/?\\s*source)");
 
     private final String systemPrompt;
 
@@ -41,6 +45,6 @@ public class PromptAssembler {
 
     /** A retrieved chunk must not be able to close its own tag and pose as instructions. */
     private static String escape(String text) {
-        return text.replace("</source", "&lt;/source").replace("<source", "&lt;source");
+        return SOURCE_TAG.matcher(text).replaceAll("&lt;$1");
     }
 }
