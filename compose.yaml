@@ -1,0 +1,20 @@
+# Fixed project name: the data volume stays the same whichever directory (or git worktree) runs the app.
+name: rag-pipeline
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: rag
+      POSTGRES_USER: rag
+      POSTGRES_PASSWORD: rag
+    ports:
+      - "5432"
+    labels:
+      # The image name isn't "postgres", so tell Spring Boot which service connection it provides.
+      org.springframework.boot.service-connection: postgres
+    volumes:
+      - rag-pgdata:/var/lib/postgresql/data
+
+volumes:
+  rag-pgdata:

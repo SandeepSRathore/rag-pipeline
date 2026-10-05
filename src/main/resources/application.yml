@@ -1,0 +1,56 @@
+server:
+  port: 8081 # 8080 is often taken by other local Spring apps
+
+spring:
+  application:
+    name: rag-pipeline
+  threads:
+    virtual:
+      enabled: true
+  mvc:
+    problemdetails:
+      enabled: true
+    async:
+      # Streamed answers can outlive Tomcat's 30 s default async timeout, especially with reasoning models.
+      request-timeout: 5m
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 20MB
+  ai:
+    openai:
+      api-key: ${OPENAI_API_KEY}
+      chat:
+        options:
+          model: ${OPENAI_CHAT_MODEL:gpt-5-mini}
+          stream-options:
+            include-usage: true
+      embedding:
+        # Default is EMBED, which prepends every metadata entry ("source_id: 3f2a…") to the text before
+        # embedding. Chunks already carry a "Title › Section" header; IDs and counters would only add noise.
+        metadata-mode: none
+        options:
+          model: text-embedding-3-small
+    vectorstore:
+      pgvector:
+        initialize-schema: false # Flyway owns the schema: db/migration/V1__schema.sql
+        dimensions: 1536
+        distance-type: cosine-distance
+        index-type: hnsw
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
+rag:
+  corpus-dir: corpus
+  embedding-model: ${spring.ai.openai.embedding.options.model}
+  chunking:
+    max-tokens: 500
+    min-tokens: 50
+    overlap-tokens: 60
+  retrieval:
+    top-k: 5
+    similarity-threshold: 0.0
