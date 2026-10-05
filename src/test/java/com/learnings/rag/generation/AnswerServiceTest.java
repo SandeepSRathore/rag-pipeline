@@ -91,6 +91,26 @@ class AnswerServiceTest {
     }
 
     @Test
+    void bracesInSourcesAndQuestionsReachTheModelVerbatim() {
+        // Retrieved code samples are full of {placeholders}; they must never be read as prompt-template variables.
+        Document chunk = Document.builder()
+                .text("Config › Templates\n\nUse {name} or {{double}} and ${user.home} in templates.")
+                .metadata(Map.<String, Object>of(SOURCE_PATH, "templates.adoc", TITLE, "Config", BREADCRUMB, "Templates"))
+                .build();
+        when(pipeline.retrieve(anyString())).thenReturn(new RetrievalResult(List.of(chunk), new PipelineTrace(List.of())));
+        StubChatModel model = new StubChatModel("ok [1]");
+
+        StepVerifier.create(service(model).answer("What does {name} expand to?"))
+                .expectNextMatches(ChatEvent.Sources.class::isInstance)
+                .expectNext(new ChatEvent.Token("ok [1]"))
+                .expectNextMatches(ChatEvent.Done.class::isInstance)
+                .verifyComplete();
+
+        assertThat(model.prompts()).singleElement().satisfies(prompt -> assertThat(prompt.getContents())
+                .contains("Use {name} or {{double}} and ${user.home} in templates.", "Question: What does {name} expand to?"));
+    }
+
+    @Test
     void retrievalFailureBecomesAGenericErrorEvent() {
         when(pipeline.retrieve(anyString())).thenThrow(new IllegalStateException("database down"));
 

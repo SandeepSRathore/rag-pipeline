@@ -219,6 +219,28 @@ class IngestionIT {
     }
 
     @Test
+    void partialInsertFailureRemovesTheChunksAlreadyWritten() throws IOException {
+        // PgVectorStore embeds and inserts in batches, so a failure can come after some rows are already written.
+        VectorStore failsAfterFirstChunk = new DelegatingVectorStore(vectorStore) {
+            @Override
+            public void add(List<Document> documents) {
+                super.add(documents.subList(0, 1));
+                throw new IllegalStateException("rate limited after the first batch");
+            }
+        };
+        DocumentIngestionService service = ingestionService(failsAfterFirstChunk, new StructureAwareChunker(properties),
+                properties.embeddingModel());
+        String text = Files.readString(corpus.resolve("pgvector.adoc"));
+        assertThat(new StructureAwareChunker(properties).chunk(text, "pgvector").chunks()).hasSizeGreaterThan(1);
+
+        assertThatThrownBy(() -> service.ingest("pgvector.adoc", "pgvector", text, Origin.CORPUS))
+                .hasMessage("rate limited after the first batch");
+
+        assertThat(vectorRows()).isZero();
+        assertThat(documents.findBySourcePath("pgvector.adoc")).isEmpty();
+    }
+
+    @Test
     void chunksCarryAContextualHeaderAndMetadata() throws IOException {
         corpusIngestor.ingestDirectory(corpus);
 
@@ -268,13 +290,12 @@ class IngestionIT {
     }
 
     /** Holds every add() until {@code parties} calls are inside it (or 2 s pass), to force two ingests to overlap. */
-    static class RendezvousVectorStore implements VectorStore {
+    static class RendezvousVectorStore extends DelegatingVectorStore {
 
-        private final VectorStore delegate;
         private final CountDownLatch arrivals;
 
         RendezvousVectorStore(VectorStore delegate, int parties) {
-            this.delegate = delegate;
+            super(delegate);
             this.arrivals = new CountDownLatch(parties);
         }
 
@@ -287,6 +308,21 @@ class IngestionIT {
             catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
+            super.add(documents);
+        }
+    }
+
+    /** Forwards everything to the real store; tests override the calls they want to disturb. */
+    static class DelegatingVectorStore implements VectorStore {
+
+        private final VectorStore delegate;
+
+        DelegatingVectorStore(VectorStore delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public void add(List<Document> documents) {
             delegate.add(documents);
         }
 
