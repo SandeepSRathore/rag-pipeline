@@ -193,3 +193,14 @@ Run TDD inside each milestone (superpowers:test-driven-development). Pause at M3
 1. `git init`, add `.gitignore`, save this design to `docs/superpowers/specs/2026-10-05-rag-pipeline-design.md`, commit.
 2. Expand into a task-level implementation plan (superpowers:writing-plans), starting with M0–M2.
 3. User picks the execution mode. Then build milestone by milestone, stopping after each one to show results.
+
+## Amendments (2026-10-05, from implementation planning against the Spring AI 2.0.1 jars)
+
+1. **`source_document.fingerprint` replaces `content_sha256`.** It is sha256(chunker settings + content), so changing
+   `rag.chunking.*` re-ingests unchanged files instead of silently keeping stale chunks.
+2. **Overlap is implemented in the chunker's paragraph packer.** `TokenTextSplitter` in 2.0.1 has no overlap option,
+   so it is only the fallback for a single oversized prose paragraph.
+3. **AsciiDoc tables (`|===`) are atomic, like code listings.** Property tables stay whole.
+4. **`AiConfig` is deferred to M5.** M0–M2 have a single `ChatClient`, built in `AnswerService`.
+5. **`spring.ai.openai.embedding.metadata-mode=none`.** The default (`embed`) prepends every metadata entry
+   (UUIDs, counters) to the text before embedding.
