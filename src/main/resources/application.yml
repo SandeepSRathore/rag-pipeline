@@ -1,5 +1,8 @@
 server:
   port: 8081 # 8080 is often taken by other local Spring apps
+  # No auth (local learning project): listen on loopback only, so nobody on the LAN can upload, delete or
+  # spend OpenAI credits through this app.
+  address: 127.0.0.1
 
 spring:
   application:
