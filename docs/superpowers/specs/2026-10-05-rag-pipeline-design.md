@@ -185,7 +185,7 @@ Run TDD inside each milestone (superpowers:test-driven-development). Pause at M3
 4. `POST /api/retrieve` with `mode=VECTOR` vs `HYBRID` shows different traces. An identifier-heavy query
    (`spring.ai.vectorstore.pgvector.index-type`) ranks better with HYBRID.
 5. In the browser at `http://localhost:8080`: ask, click a citation chip, toggle debug, upload a PDF, then ask about it.
-6. Off-topic question ("capital of France?") gets a polite "not in the docs" answer (M6+).
+6. Off-topic question ("How long should I proof sourdough bread dough?") gets a polite "not in the docs" answer (M6+; see amendment 14).
 7. `./mvnw spring-boot:run -Dspring-boot.run.profiles=eval` writes `eval/reports/*.md` with a table for every config.
 
 ## Next steps after approval
@@ -210,6 +210,19 @@ Run TDD inside each milestone (superpowers:test-driven-development). Pause at M3
    the swap is transactional. No OpenAI call holds a DB connection, and a failed embedding keeps the previous version.
 8. **`spring.mvc.async.request-timeout: 5m`**, because Tomcat's 30 s default would cut off long streamed answers.
 9. **Clients get generic error messages**; details are logged.
+10. **Uploads without markup are chunked as plain paragraphs** (`.txt` and Tika output from PDF/HTML/DOCX). Only `.adoc`/`.md`
+    go through the heading/listing parser. Listings and tables stay whole up to 4 × `max-tokens` (at most 6,000 tokens) and
+    are split by lines beyond that, so every chunk stays embeddable.
+11. **Ingests and deletes of one source path run one at a time** (striped in-JVM locks; single instance). A swap that fails
+    removes the chunks it just inserted, so no orphan chunks can be left behind.
+12. **Each chunk records its `embedding_model`, and retrieval only searches the current model.** After a model switch, old
+    uploads are no longer retrieved (rather than retrieved wrongly) until they are uploaded again; corpus pages re-ingest on
+    the next sync.
+13. **`POST /api/ingest/corpus` returns `{added, updated, skipped, removed, chunksWritten, failed}`.** One failing file no
+    longer stops the sync: it is listed in `failed`, its previous version stays indexed, and removals still run.
+14. **Off-topic probe:** "What is the capital of France?" is not off-topic for this corpus (an Anthropic citations example
+    contains "Paris is the capital city of France"). The E2E check and M6 use a truly absent fact, e.g.
+    "How long should I proof sourdough bread dough?".
 
 **Scope decision (2026-10-05):** this stays a learning project. Production hardening (auth, document ACLs, rate limits,
 async ingestion jobs, CI eval gates, deployment) is intentionally out of scope.
