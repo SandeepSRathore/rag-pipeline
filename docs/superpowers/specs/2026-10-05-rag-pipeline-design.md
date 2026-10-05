@@ -223,6 +223,24 @@ Run TDD inside each milestone (superpowers:test-driven-development). Pause at M3
 14. **Off-topic probe:** "What is the capital of France?" is not off-topic for this corpus (an Anthropic citations example
     contains "Paris is the capital city of France"). The E2E check and M6 use a truly absent fact, e.g.
     "How long should I proof sourdough bread dough?".
+15. **Golden set format (from M3 planning):** a JSON array of
+    `{id, question, expectedSources: [{sourcePath, sectionPrefix}], referenceAnswer, sourceExcerpt}`.
+    - `sectionPrefix` matches at heading boundaries (`Indexes` matches `Indexes › HNSW`, not `Index`), and `""` accepts
+      any chunk of the page.
+    - `sourceExcerpt` is reviewer context and is never scored.
+    - The draft holds 40 questions so that review can cut it to 30 or more.
+16. **Leakage guard:** a generated question that shares 5 or more consecutive words with its chunk is rewritten once,
+    then dropped. Identifiers count as one word.
+17. **M3 compares one configuration, `vector`.** Per-call `RetrievalOptions` let the eval retrieve the top 10 for MRR@10
+    while chat keeps 5. M4–M6 add their configurations to `EvalConfig.all`.
+18. **Eval preconditions and report contents:**
+    - The eval refuses an empty index, and refuses expected `sourcePath`s that are not indexed.
+    - Reports record the golden set's sha256, the index composition (warning when uploads are present), the embedding
+      model and the chunking settings.
+19. **Generator safety:** the generator refuses to overwrite an existing draft unless `rag.eval.golden.overwrite=true`,
+    and aborts after 3 consecutive LLM failures.
+20. **`golden` and `eval` are non-web profiles that exit when done:**
+    `./mvnw spring-boot:run -Dspring-boot.run.profiles=golden|eval`.
 
 **Scope decision (2026-10-05):** this stays a learning project. Production hardening (auth, document ACLs, rate limits,
 async ingestion jobs, CI eval gates, deployment) is intentionally out of scope.
