@@ -1,0 +1,15 @@
+target/
+.playwright-mcp/
+.idea/
+*.iml
+.DS_Store
+.project
+.settings/
+.classpath
+.vscode/
+
+# RAG pipeline
+corpus/
+eval/reports/
+eval/golden-set.draft.json
+.env
