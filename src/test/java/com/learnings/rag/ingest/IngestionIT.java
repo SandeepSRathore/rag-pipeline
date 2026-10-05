@@ -8,7 +8,14 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -17,7 +24,9 @@ import org.springframework.ai.document.Document;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.embedding.EmbeddingRequest;
 import org.springframework.ai.embedding.EmbeddingResponse;
+import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.ai.vectorstore.filter.Filter;
 import org.springframework.ai.vectorstore.pgvector.PgVectorStore;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.NestedExceptionUtils;
@@ -161,6 +170,40 @@ class IngestionIT {
     }
 
     @Test
+    void concurrentIngestsOfTheSamePathLeaveNoOrphanChunks() throws Exception {
+        // Each embedding call waits for the other to arrive, so without per-path serialization both ingests
+        // are inside the insert-then-swap window at the same time (a double-clicked upload, overlapping syncs).
+        DocumentIngestionService service = ingestionService(new RendezvousVectorStore(vectorStore, 2),
+                new StructureAwareChunker(properties), properties.embeddingModel());
+        Callable<Status> upload = () -> service.ingest("uploads/notes.md", "notes",
+                "# Notes\n\nUse HNSW for low latency search.", Origin.UPLOAD).status();
+
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            Future<Status> first = executor.submit(upload);
+            Future<Status> second = executor.submit(upload);
+            assertThat(List.of(first.get(), second.get())).containsExactlyInAnyOrder(Status.ADDED, Status.SKIPPED);
+        }
+        assertThat(documents.findAll()).singleElement();
+        assertThat(vectorRows()).isEqualTo(sumOfChunkCounts());
+    }
+
+    @Test
+    void failedSwapRemovesTheChunksItJustInserted() {
+        SourceDocumentRepository rejectingSave = new SourceDocumentRepository(jdbc) {
+            @Override
+            public void save(SourceDocument document) {
+                throw new IllegalStateException("database rejected the row");
+            }
+        };
+        DocumentIngestionService service = new DocumentIngestionService(vectorStore, rejectingSave,
+                new StructureAwareChunker(properties), properties, transactionManager);
+
+        assertThatThrownBy(() -> service.ingest("uploads/notes.md", "notes", "# Notes\n\nUse HNSW.", Origin.UPLOAD))
+                .hasMessage("database rejected the row");
+        assertThat(vectorRows()).isZero();
+    }
+
+    @Test
     void chunksCarryAContextualHeaderAndMetadata() throws IOException {
         corpusIngestor.ingestDirectory(corpus);
 
@@ -207,6 +250,45 @@ class IngestionIT {
         RagProperties withModel = new RagProperties(properties.corpusDir(), embeddingModel, properties.chunking(),
                 properties.retrieval());
         return new DocumentIngestionService(store, documents, chunker, withModel, transactionManager);
+    }
+
+    /** Holds every add() until {@code parties} calls are inside it (or 2 s pass), to force two ingests to overlap. */
+    static class RendezvousVectorStore implements VectorStore {
+
+        private final VectorStore delegate;
+        private final CountDownLatch arrivals;
+
+        RendezvousVectorStore(VectorStore delegate, int parties) {
+            this.delegate = delegate;
+            this.arrivals = new CountDownLatch(parties);
+        }
+
+        @Override
+        public void add(List<Document> documents) {
+            arrivals.countDown();
+            try {
+                arrivals.await(2, TimeUnit.SECONDS);
+            }
+            catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            delegate.add(documents);
+        }
+
+        @Override
+        public void delete(List<String> idList) {
+            delegate.delete(idList);
+        }
+
+        @Override
+        public void delete(Filter.Expression filterExpression) {
+            delegate.delete(filterExpression);
+        }
+
+        @Override
+        public List<Document> similaritySearch(SearchRequest request) {
+            return delegate.similaritySearch(request);
+        }
     }
 
     /** Simulates OpenAI being unreachable or rejecting the API key. */
