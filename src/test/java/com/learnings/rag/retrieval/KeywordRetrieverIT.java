@@ -120,6 +120,15 @@ class KeywordRetrieverIT {
     }
 
     @Test
+    void aLeadingMinusDoesNotTurnTheQueryIntoMatchEverything() {
+        // websearch syntax reads "-hnsw" as NOT hnsw; OR-ed, that matched every chunk without "hnsw", at score 0.
+        assertThat(keywordRetriever.retrieve("pgvector -hnsw", 50))
+                .isNotEmpty()
+                .allSatisfy(document -> assertThat(document.getScore()).isPositive());
+        assertThat(keywordRetriever.retrieve("What is -Xmx?", 10)).isEmpty();
+    }
+
+    @Test
     void onlySearchesChunksOfTheCurrentEmbeddingModel() {
         RagProperties retiredModel = new RagProperties(properties.corpusDir(), "retired-embedding-model",
                 properties.chunking(), properties.retrieval());

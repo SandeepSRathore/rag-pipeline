@@ -15,11 +15,15 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Lexical retrieval over the generated {@code content_tsv} column (GIN-indexed, {@code english} configuration).
- * {@code websearch_to_tsquery} parses the question (stop words, stemming, "quoted phrases", -negation) and never
- * fails on user input, but joins the terms with AND, so a natural-language question rarely matches any chunk.
- * Replacing {@code &} with {@code |} asks for chunks matching any term; {@code ts_rank_cd} then ranks chunks that
- * match more terms, closer together, higher. Dotted identifiers stay single lexemes, so exact property and class
- * names still match precisely.
+ * {@code websearch_to_tsquery} parses the question (stop words, stemming, "quoted phrases") and never fails on user
+ * input, but joins the terms with AND, so a natural-language question rarely matches any chunk. Replacing {@code &}
+ * with {@code |} asks for chunks matching any term. Dotted identifiers stay single lexemes, so exact property and
+ * class names match precisely.
+ * <p>
+ * Ranking is {@code ts_rank_cd}, as the spec fixed it. Under OR it scores every occurrence of any term at full weight,
+ * so a chunk repeating a common word ("default") outranks the one chunk holding a rare identifier; the M4 eval
+ * measured this (see eval/README.md). Websearch {@code -negation} is ignored: OR-ed, a negated term would match every
+ * chunk that lacks it at score 0, so rows scoring 0 are dropped, and a question of only negated terms finds nothing.
  */
 @Component
 public class KeywordRetriever {
@@ -31,7 +35,7 @@ public class KeywordRetriever {
             SELECT id::text AS id, content, metadata::text AS metadata, ts_rank_cd(content_tsv, q.query) AS rank
             FROM vector_store,
                  (SELECT replace(websearch_to_tsquery('english', :question)::text, '&', '|')::tsquery AS query) q
-            WHERE content_tsv @@ q.query AND metadata->>'%s' = :model
+            WHERE content_tsv @@ q.query AND ts_rank_cd(content_tsv, q.query) > 0 AND metadata->>'%s' = :model
             ORDER BY rank DESC, id
             LIMIT :limit
             """.formatted(ChunkMetadata.EMBEDDING_MODEL);
