@@ -316,6 +316,8 @@ Run TDD inside each milestone (superpowers:test-driven-development). Pause at M3
       - Against hybrid's 0.905 / 0.984 (MRR@10 / hit@5): rewrite 0.784 / 0.921, multiquery 0.842 / 0.968,
         both 0.761 / 0.952.
       - p50 latency: 1.46 s, 2.03 s and 2.98 s, against 0.49 s.
+      - This was a single run, and the LLM steps vary between calls even at temperature 0. The margins are far larger
+        than one question (1/63), so the decision holds, but the exact candidate scores would move on a re-run.
 
 **Scope decision (2026-10-05):** this stays a learning project. Production hardening (auth, document ACLs, rate limits,
 async ingestion jobs, CI eval gates, deployment) is intentionally out of scope.

@@ -132,27 +132,41 @@ candidates scored *below* hybrid on both:
 - `hybrid+multiquery`: 0.842 / 0.968;
 - `hybrid+rewrite+multiquery`: 0.761 / 0.952.
 
-What the numbers show:
+What the numbers show (single run, so per-question anecdotes are single samples):
 
-- **Rewriting pads queries with generic terms.**
-  - `gpt-4.1-mini` turned most questions into "…in Spring AI documentation" or "…in Spring AI", an artifact of the
-    target-system phrase given to `RewriteQueryTransformer`.
-  - Those words match almost every chunk, so clean questions lost their rank-1 hits. For example, `q28` fell from
-    rank 1 to 8, `q24` to 6, and `q17` out of the top 10; untagged MRR@10 fell from 0.900 to 0.745.
-  - It did help some chatty questions (`c01` and `c06` rose to rank 1), but the conversational tag as a whole stayed
-    flat (0.833 against 0.850).
-- **Multi-query variants were near-paraphrases.** Typical variants were "Spring AI X…", "How to X…" and "X…".
-  - Fusing four similar rankings diluted the original question's precise top hit: MRR@10 0.842 against 0.905, and
-    conversational 0.783 against 0.850.
+- **Rewriting tended to pad queries with "Spring AI".**
+  - `gpt-4.1-mini` added "…in Spring AI documentation" or "…in Spring AI" to 34 of 63 questions. That is likely an
+    artifact of the target-system phrase given to `RewriteQueryTransformer`.
+  - 13 of the 15 questions that got worse had "Spring" added. For example, `q28` fell from rank 1 to 8, `q24` to 6,
+    and `q17` out of the top 10. Untagged MRR@10 fell from 0.900 to 0.745.
+  - But 21 padded questions did not get worse, so this is an association, not a measured mechanism.
+  - The added terms are broad rather than universal: "spring" or "ai" occurs in 487 of 1,106 chunks (44%), and
+    "document" in 184 (17%).
+  - Rewriting helped some chatty questions (`c01` and `c06` rose to rank 1), but the conversational tag as a whole
+    stayed flat (0.833 against 0.850).
+- **Multi-query variants were padded the same way, by our own prompt.**
+  - 83 of 189 variants (44%) add "Spring…" that the question lacks, 32 of them "Spring Boot". The expansion prompt
+    itself names "Spring AI reference documentation (Java, Spring Boot)".
+  - Variants that pull towards generic pages produce rankings that disagree with the original question's precise one,
+    and fusing them diluted its top hit: MRR@10 0.842 against 0.905, and conversational 0.783 against 0.850.
   - Expansion itself worked: 4.0 queries per question, 0 fallbacks.
+- **`hybrid+rewrite+multiquery` never searched the user's question.** Expansion runs on the rewritten text (spec
+  amendment 30), so this configuration searched the rewrite plus 3 variants of it, on all 63 items. Its result says
+  nothing about adding variants to the original question.
 - **The cost is real.** p50 retrieval latency goes from 0.49 s (hybrid) to 1.46 s with rewriting, 2.03 s with
   multi-query and 2.98 s with both.
-- **Caveats and next ideas (not measured):**
+- **Caveats:**
+  - This is a single run. Temperature 0 is not fully deterministic: the same question was rewritten differently by
+    the two rewrite configurations in 14 of 63 cases.
+  - The decision itself is robust: multi-query would have needed +0.079 MRR@10 to qualify.
   - The golden questions are mostly clean, single-intent questions, and hybrid already reaches hit@5 1.000 on the
-    conversational ones. That leaves these techniques little room.
-  - A rewrite prompt that does not name "Spring AI" may avoid the padding.
-  - So might rewriting only questions that look conversational, or prompting for more diverse variants.
+    conversational ones, which leaves these techniques little room.
   - With 63 questions, one question is worth about 0.016 in hit@5.
+- **Next ideas (not measured):**
+  - Remove product names ("Spring AI", "Spring Boot") from the rewrite target phrase and from the expansion prompt.
+  - Rewrite only questions that look conversational.
+  - Search the original question alongside the rewrite.
+  - Repeat each LLM configuration 2–3 times to show the variance.
 
 ## M4: vector vs keyword vs hybrid
 

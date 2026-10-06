@@ -583,9 +583,10 @@ labels name a page and a heading path, not chunk ids, so the set survives re-chu
 | hybrid+rewrite+multiquery | 0.952 | 0.947 | 0.761 | 2982 | 3289 |
 
 Hybrid retrieval stays the default (chosen in M4). Rewriting and multi-query expansion are implemented
-(`rag.retrieval.rewrite`, `rag.retrieval.query-variants`) but stay **off**: both scored below plain hybrid and tripled
-or quadrupled retrieval latency. The rewriter padded queries with "Spring AI documentation", and the query variants
-were near-paraphrases. Details, the per-tag results and the next ideas are in
+(`rag.retrieval.rewrite`, `rag.retrieval.query-variants`) but stay **off**: both scored below plain hybrid in a single
+run and multiplied retrieval latency 3–6×. Both the rewrites and the expansion variants tended to add generic "Spring
+AI" / "Spring Boot" terms; that is an association, not a measured cause. Details, the per-tag results and the next
+ideas are in
 [`eval/README.md`](eval/README.md#m5-rewriting-and-multi-query). The golden set is AI-reviewed.
 
 ## Design decisions
