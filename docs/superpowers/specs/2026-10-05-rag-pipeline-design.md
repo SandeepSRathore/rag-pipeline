@@ -312,6 +312,10 @@ Run TDD inside each milestone (superpowers:test-driven-development). Pause at M3
       - its hit@5 is at least hybrid's − 1/N, where N = 63.
     - If several qualify, the highest MRR@10 wins; on a tie, the one with fewer LLM calls wins.
     - Otherwise rewriting and expansion stay off. Latency is reported, not capped.
+    - **Outcome** (report 2026-10-06T10-56-23Z): no candidate qualified, so both stay off.
+      - Against hybrid's 0.905 / 0.984 (MRR@10 / hit@5): rewrite 0.784 / 0.921, multiquery 0.842 / 0.968,
+        both 0.761 / 0.952.
+      - p50 latency: 1.46 s, 2.03 s and 2.98 s, against 0.49 s.
 
 **Scope decision (2026-10-05):** this stays a learning project. Production hardening (auth, document ACLs, rate limits,
 async ingestion jobs, CI eval gates, deployment) is intentionally out of scope.

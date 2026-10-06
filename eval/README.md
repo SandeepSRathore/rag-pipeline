@@ -82,6 +82,78 @@ This writes `eval/reports/<UTC time>.md` and `.json` (gitignored). Each report r
   symptoms instead of terms), with that item's labels and `"tags": ["conversational"]`. They are written by Claude to
   test query rewriting and multi-query expansion, which target exactly this kind of question.
 
+## M5: rewriting and multi-query
+
+Recorded on 2026-10-06 from `eval/reports/2026-10-06T10-56-23Z.md` (golden set v3, 63 questions; utility model `gpt-4.1-mini` at temperature 0):
+
+| | |
+|---|---|
+| Golden set | `eval/golden-set.json` (63 questions, sha256 `0cd74f160e10…`) |
+| Index | 51 corpus pages, 0 uploads, 1106 chunks |
+| Embedding model | `text-embedding-3-small` |
+| Chunking | max 500 · min 50 · overlap 60 tokens |
+
+| Config | hit@5 | recall@5 | MRR@10 | p50 ms | p95 ms |
+|---|---|---|---|---|---|
+| vector | 0.984 | 0.971 | 0.851 | 500 | 658 |
+| keyword | 0.952 | 0.942 | 0.830 | 18 | 40 |
+| hybrid | 0.984 | 0.979 | 0.905 | 492 | 673 |
+| hybrid+rewrite | 0.921 | 0.915 | 0.784 | 1464 | 1744 |
+| hybrid+multiquery | 0.968 | 0.963 | 0.842 | 2032 | 2325 |
+| hybrid+rewrite+multiquery | 0.952 | 0.947 | 0.761 | 2982 | 3289 |
+
+Queries searched per question (average): vector 1.0 · keyword 1.0 · hybrid 1.0 · hybrid+rewrite 1.0 · hybrid+multiquery 4.0 (expansion fell back on 0) · hybrid+rewrite+multiquery 4.0 (expansion fell back on 0)
+
+| Config | Tag | Items | hit@5 | recall@5 | MRR@10 |
+|---|---|---|---|---|---|
+| vector | conversational | 10 | 1.000 | 1.000 | 0.783 |
+| vector | identifier | 13 | 1.000 | 0.962 | 0.753 |
+| vector | untagged | 40 | 0.975 | 0.967 | 0.900 |
+| keyword | conversational | 10 | 0.900 | 0.900 | 0.781 |
+| keyword | identifier | 13 | 1.000 | 1.000 | 1.000 |
+| keyword | untagged | 40 | 0.950 | 0.933 | 0.788 |
+| hybrid | conversational | 10 | 1.000 | 1.000 | 0.850 |
+| hybrid | identifier | 13 | 1.000 | 1.000 | 0.962 |
+| hybrid | untagged | 40 | 0.975 | 0.967 | 0.900 |
+| hybrid+rewrite | conversational | 10 | 1.000 | 1.000 | 0.833 |
+| hybrid+rewrite | identifier | 13 | 1.000 | 1.000 | 0.865 |
+| hybrid+rewrite | untagged | 40 | 0.875 | 0.867 | 0.745 |
+| hybrid+multiquery | conversational | 10 | 1.000 | 1.000 | 0.783 |
+| hybrid+multiquery | identifier | 13 | 1.000 | 1.000 | 0.904 |
+| hybrid+multiquery | untagged | 40 | 0.950 | 0.942 | 0.837 |
+| hybrid+rewrite+multiquery | conversational | 10 | 1.000 | 1.000 | 0.758 |
+| hybrid+rewrite+multiquery | identifier | 13 | 1.000 | 1.000 | 0.910 |
+| hybrid+rewrite+multiquery | untagged | 40 | 0.925 | 0.917 | 0.713 |
+
+**Defaults: rewriting and multi-query stay off.** The rule fixed before the run (spec amendment 32) needs a candidate to
+beat plain hybrid's MRR@10 (0.905) by at least 1/63 without losing more than one question on hit@5 (0.984). All three
+candidates scored *below* hybrid on both:
+- `hybrid+rewrite`: MRR@10 0.784, hit@5 0.921;
+- `hybrid+multiquery`: 0.842 / 0.968;
+- `hybrid+rewrite+multiquery`: 0.761 / 0.952.
+
+What the numbers show:
+
+- **Rewriting pads queries with generic terms.**
+  - `gpt-4.1-mini` turned most questions into "…in Spring AI documentation" or "…in Spring AI", an artifact of the
+    target-system phrase given to `RewriteQueryTransformer`.
+  - Those words match almost every chunk, so clean questions lost their rank-1 hits. For example, `q28` fell from
+    rank 1 to 8, `q24` to 6, and `q17` out of the top 10; untagged MRR@10 fell from 0.900 to 0.745.
+  - It did help some chatty questions (`c01` and `c06` rose to rank 1), but the conversational tag as a whole stayed
+    flat (0.833 against 0.850).
+- **Multi-query variants were near-paraphrases.** Typical variants were "Spring AI X…", "How to X…" and "X…".
+  - Fusing four similar rankings diluted the original question's precise top hit: MRR@10 0.842 against 0.905, and
+    conversational 0.783 against 0.850.
+  - Expansion itself worked: 4.0 queries per question, 0 fallbacks.
+- **The cost is real.** p50 retrieval latency goes from 0.49 s (hybrid) to 1.46 s with rewriting, 2.03 s with
+  multi-query and 2.98 s with both.
+- **Caveats and next ideas (not measured):**
+  - The golden questions are mostly clean, single-intent questions, and hybrid already reaches hit@5 1.000 on the
+    conversational ones. That leaves these techniques little room.
+  - A rewrite prompt that does not name "Spring AI" may avoid the padding.
+  - So might rewriting only questions that look conversational, or prompting for more diverse variants.
+  - With 63 questions, one question is worth about 0.016 in hit@5.
+
 ## M4: vector vs keyword vs hybrid
 
 **Final comparison** from `eval/reports/2026-10-06T09-34-14Z.md` (golden set v2, 53 questions). Keyword search here is ranked with
