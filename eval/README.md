@@ -114,20 +114,35 @@ What the numbers show:
 - **Vector search is strong on this set.** It has 0.981 hit@5, and even identifier questions all land in its top 5
   (it ranks them lower, at MRR@10 0.753, than the rest at 0.900). The golden questions were mostly generated from
   single chunks, which suits vector search.
-- **Keyword search is weak, and the reason is the ranking, not the matching.** Postgres tokenizes the identifiers
-  correctly; for example, `spring.ai.vectorstore.neo4j.embedding-dimension` matches exactly. But `ts_rank_cd` has no
-  IDF (no rarer-is-more-informative weighting), so with OR semantics a chunk that says "default" many times
-  outranks the one table row holding the exact property. Three different identifier questions got the identical
-  keyword top 3.
-- **Hybrid helps identifiers a little and hurts the rest.**
-  - On identifiers its MRR@10 is 0.785 (vector 0.753), but its hit@5 is 0.923 (vector 1.000).
-  - On untagged questions its MRR@10 drops from 0.900 to 0.720.
-  - The cause is equal-weight RRF: a noisy keyword ranking pushes vector's correct rank-1 chunk down. Its latency
-    is the same as vector's, since keyword search takes about 12 ms and runs in parallel.
-- **Exploratory, outside the harness:** keyword search that requires all terms first and falls back to any term
-  ("AND→OR") would reach hit@5 0.604 and MRR@10 0.484 overall, and 0.846 / 0.857 on identifiers. That is against
-  0.509 / 0.359 and 0.538 / 0.549 as built. It is the obvious next keyword experiment, together with weighting RRF
-  towards vector search.
+- **Keyword search is weak because of the ranking function, not the matching.**
+  - Postgres tokenizes the identifiers correctly; for example, `spring.ai.vectorstore.neo4j.embedding-dimension`
+    matches exactly.
+  - But `ts_rank_cd` (cover density) scores an OR query by counting every occurrence of any query term at full
+    weight. So a chunk that repeats a common word outranks the chunk holding the rare identifier. In a probe,
+    "default" ×10 scored 1.0 while the exact identifier once scored 0.1.
+  - Hyphenated identifiers also become phrases (`'…embedding' <-> 'dimens'`), which `ts_rank_cd` scores lower still.
+    For `i03` the labelled chunk ranked 82nd of 82 matches.
+  - As a result, three different identifier questions got the identical keyword top 3.
+  - IDF is *not* the explanation: `ts_rank` has no IDF either and does far better (below).
+- **Hybrid makes no measurable difference on identifiers and hurts the rest.**
+  - On identifiers its MRR@10 is 0.785 against vector's 0.753. That gap is smaller than one question moving from
+    rank 1 to rank 2 (0.038 on 13 items). Its hit@5 is one question worse.
+  - On untagged questions its MRR@10 drops from 0.900 to 0.720. Equal-weight RRF lets the noisy `ts_rank_cd` ranking
+    push vector's correct rank-1 chunk down.
+  - Latency equals vector's: keyword search takes about 12 ms and runs in parallel.
+- **The M4 decision applies to the keyword retriever as built (`ts_rank_cd`).** Exploratory results, computed
+  outside the harness with an SQL copy of the keyword query, are below. That copy reproduces the harness's
+  `ts_rank_cd` numbers exactly; hybrid with these variants was not measured, since that needs query embeddings.
+
+  | Keyword search variant (same OR query and filters) | hit@5 | MRR@10 | identifier hit@5 | identifier MRR@10 |
+  |---|---|---|---|---|
+  | `ts_rank_cd` (as built) | 0.509 | 0.359 | 0.538 | 0.549 |
+  | `ts_rank` | 0.925 | 0.823 | 1.000 | 0.962 |
+  | `ts_rank(…, 1)` (length-normalised) | 0.962 | 0.840 | 1.000 | 1.000 |
+  | `ts_rank_cd`, all terms first, then any term | 0.604 | 0.484 | 0.846 | 0.857 |
+
+  Switching the rank function to `ts_rank` is a one-line change that could reverse the hybrid result, so it is the
+  next experiment. It needs a spec amendment and a re-run of this comparison under the same rule.
 
 ## Baseline
 

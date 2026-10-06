@@ -246,8 +246,10 @@ Run TDD inside each milestone (superpowers:test-driven-development). Pause at M3
     unchanged: a human review comes before the golden set is used. `expectedSources` are relevant answer locations,
     as in IR: hit@5 needs any of them in the top 5, and recall@5 is the share found there.
 22. **Keyword search uses OR semantics (from M4 planning).**
-    - The question is parsed by `websearch_to_tsquery('english', …)`, which handles stop words, stemming, quoted
-      phrases and `-negation`. The parsed `&`s are then replaced with `|`, and `ts_rank_cd` ranks the results.
+    - The question is parsed by `websearch_to_tsquery('english', …)`, which handles stop words, stemming and quoted
+      phrases. The parsed `&`s are then replaced with `|`, and `ts_rank_cd` ranks the results.
+    - `-negation` is ignored. OR-ed, a negated term would match every chunk that lacks it at score 0, so rows scoring
+      0 are dropped (fixed after the M4 review).
     - Probe on the real index: with AND, 2 of 4 natural-language questions matched 0 chunks.
     - Dotted identifiers stay single lexemes, so exact identifiers still match precisely.
     - Keyword search is filtered to the current embedding model, like vector search.
@@ -261,6 +263,11 @@ Run TDD inside each milestone (superpowers:test-driven-development). Pause at M3
     - Otherwise VECTOR stays, and the report says why.
     - **Outcome** (M4 report 2026-10-06T05-48-24Z): VECTOR stays. Hybrid MRR@10 0.736 vs vector 0.864; hit@5 0.962
       vs 0.981.
+    - The outcome holds for the `ts_rank_cd` keyword retriever as built. That rank function scores every occurrence of
+      any OR-ed term at full weight, so common words outrank rare identifiers; the M4 review showed the weakness is
+      this, not missing IDF.
+    - Exploratory, outside the harness: `ts_rank` reaches keyword-alone hit@5 0.925 and MRR@10 0.823. Switching to it
+      is a candidate amendment, to be measured under the same rule.
 25. **Golden items take optional `tags`.**
     - 12 identifier questions (`i01`–`i12`) and `h01` are tagged `identifier`, which makes golden set v2 53 items.
     - Reports add a per-tag table.

@@ -559,9 +559,11 @@ labels name a page and a heading path, not chunk ids, so the set survives re-chu
 | hybrid | 0.962 | 0.937 | 0.736 | 476 | 731 |
 
 Vector search stays the default (`rag.retrieval.mode=vector`), as the rule fixed before the run required: hybrid
-lost on MRR@10. Postgres's `ts_rank_cd` ranks without IDF, which keeps keyword search weak. Details, the per-tag
-results and the next experiment are in [`eval/README.md`](eval/README.md#m4-vector-vs-keyword-vs-hybrid). The golden
-set is AI-reviewed and was mostly generated from single chunks, which favours vector search.
+lost on MRR@10. Keyword search was weak because of its rank function: `ts_rank_cd` lets a common word repeated in a
+chunk outrank a rare exact identifier. In an exploratory run outside the harness, `ts_rank` scored 0.925 hit@5 for
+keyword search alone, so the decision holds only for the keyword retriever as built. Details, the per-tag results
+and the next experiment are in [`eval/README.md`](eval/README.md#m4-vector-vs-keyword-vs-hybrid). The golden set is
+AI-reviewed and was mostly generated from single chunks, which favours vector search.
 
 ## Design decisions
 
