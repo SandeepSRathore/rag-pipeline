@@ -709,5 +709,163 @@
     "tags": [
       "identifier"
     ]
+  },
+  {
+    "id": "c01",
+    "question": "hey so my pgvector searches feel slow, which index thing am I supposed to pick?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/vectordbs/pgvector.adoc",
+        "sectionPrefix": "Auto-Configuration › Configuration properties"
+      }
+    ],
+    "referenceAnswer": "Set the spring.ai.vectorstore.pgvector.index-type property to NONE, IVFFlat, or HNSW. NONE performs an exact search; IVFFlat groups vectors into lists and searches a subset for faster builds and lower memory use but with lower query performance; HNSW creates a multilayer graph with better query performance at the cost of slower builds and higher memory, and it can be created without data in the table. The default value is HNSW.",
+    "sourceExcerpt": null,
+    "tags": [
+      "conversational"
+    ]
+  },
+  {
+    "id": "c02",
+    "question": "ollama keeps downloading the model every time I start the app, can I make it only fetch it when it's missing?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/embeddings/ollama-embeddings.adoc",
+        "sectionPrefix": "Auto-pulling Models"
+      },
+      {
+        "sourcePath": "api/chat/ollama-chat.adoc",
+        "sectionPrefix": "Auto-pulling Models"
+      }
+    ],
+    "referenceAnswer": "Set spring.ai.ollama.init.pull-model-strategy to when_missing (PullModelStrategy.WHEN_MISSING). With this setting the model will only be fetched when it is not present in your Ollama instance, although that may mean an older model version is used.",
+    "sourceExcerpt": null,
+    "tags": [
+      "conversational"
+    ]
+  },
+  {
+    "id": "c03",
+    "question": "my MCP client blows up at startup because the user isn't logged in yet... any way around that?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/mcp/mcp-security.adoc",
+        "sectionPrefix": "MCP Client Security › Working Around Spring AI Autoconfiguration"
+      }
+    ],
+    "referenceAnswer": "Provide a ToolCallbackResolver bean that returns a StaticToolCallbackResolver backed by an empty list. Put that bean in a @Configuration class so Spring AI's @Tool autoconfiguration will be suppressed.",
+    "sourceExcerpt": null,
+    "tags": [
+      "conversational"
+    ]
+  },
+  {
+    "id": "c04",
+    "question": "i need my tool to know which customer is calling but the LLM must not see the id, how do I pass it?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/tools.adoc",
+        "sectionPrefix": "Tool Specification Reference › Tool Context"
+      }
+    ],
+    "referenceAnswer": "Call .toolContext(...) on the ChatClient with a map that includes the tenant ID and declare a ToolContext parameter in your tool method; Spring AI supplies that map straight into the tool when it is invoked and does not send those values to the model. If you set toolContext both as a default and at the call site, the maps are merged and the values provided at call time override the defaults.",
+    "sourceExcerpt": null,
+    "tags": [
+      "conversational"
+    ]
+  },
+  {
+    "id": "c05",
+    "question": "openai throws an error when I ask for a list of records with the native structured output switch, what am I doing wrong",
+    "expectedSources": [
+      {
+        "sourcePath": "api/structured-output/native.adoc",
+        "sectionPrefix": "Known Limitations › OpenAI: No Top-Level Array Support"
+      }
+    ],
+    "referenceAnswer": "OpenAI's native structured output cannot return a bare JSON array, so requesting a List<T> via useProviderStructuredOutput() will fail. As alternatives, wrap the list in a container record and request that type with useProviderStructuredOutput(), or omit provider-native structured output and use the default prompt-based flow which allows top-level arrays.",
+    "sourceExcerpt": null,
+    "tags": [
+      "conversational"
+    ]
+  },
+  {
+    "id": "c06",
+    "question": "token counts look way too high after tool calls - does getUsage add up every call or just the last one?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/usage-handling.adoc",
+        "sectionPrefix": "Cumulative Usage Across Multi-Step Flows"
+      }
+    ],
+    "referenceAnswer": "Yes. getUsage() returns the total tokens summed across all model invocations that occurred in the exchange (for example the original chat call plus any tool-invoked calls). The aggregate is produced by UsageCalculator and includes standard token counts as well as the unified cache read/write input token metrics.",
+    "sourceExcerpt": null,
+    "tags": [
+      "conversational"
+    ]
+  },
+  {
+    "id": "c07",
+    "question": "where does the tool calling advisor sit in the advisor chain by default? my own advisor seems to run after it",
+    "expectedSources": [
+      {
+        "sourcePath": "api/chatclient.adoc",
+        "sectionPrefix": "Advisors › Tool Calling"
+      }
+    ],
+    "referenceAnswer": "It uses an order value of Ordered.HIGHEST_PRECEDENCE + 300 by default.",
+    "sourceExcerpt": null,
+    "tags": [
+      "conversational"
+    ]
+  },
+  {
+    "id": "c08",
+    "question": "I want to change how the long-term memory gets stuffed into the system prompt with the vector store memory advisor",
+    "expectedSources": [
+      {
+        "sourcePath": "api/chat-memory.adoc",
+        "sectionPrefix": "Memory in Chat Client › VectorStoreChatMemoryAdvisor › Custom Template"
+      }
+    ],
+    "referenceAnswer": "Pass your PromptTemplate to the advisor using its .promptTemplate(...) builder method. The template may rely on any TemplateRenderer and must include placeholders named instructions (for the original system text) and long_term_memory (for the retrieved conversation memory).",
+    "sourceExcerpt": null,
+    "tags": [
+      "conversational"
+    ]
+  },
+  {
+    "id": "c09",
+    "question": "don't want to install postgres on my laptop, how do I get pgvector running for local dev?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/vectordbs/pgvector.adoc",
+        "sectionPrefix": "Prerequisites"
+      },
+      {
+        "sourcePath": "api/vectordbs/pgvector.adoc",
+        "sectionPrefix": "Run Postgres & PGVector DB locally"
+      }
+    ],
+    "referenceAnswer": "Use Spring Boot's Docker Compose or Testcontainers dev services, or start the pgvector Docker image yourself as shown in the 'Run Postgres & PGVector DB locally' appendix.",
+    "sourceExcerpt": null,
+    "tags": [
+      "conversational"
+    ]
+  },
+  {
+    "id": "c10",
+    "question": "do embeddings get metrics and tracing with every provider or only some of them?",
+    "expectedSources": [
+      {
+        "sourcePath": "observability/index.adoc",
+        "sectionPrefix": "EmbeddingModel"
+      }
+    ],
+    "referenceAnswer": "Observability is currently available only for EmbeddingModel implementations from Mistral AI, Ollama, and OpenAI. Additional providers are planned to be supported in a future release.",
+    "sourceExcerpt": null,
+    "tags": [
+      "conversational"
+    ]
   }
 ]

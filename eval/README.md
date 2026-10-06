@@ -78,6 +78,9 @@ This writes `eval/reports/<UTC time>.md` and `.json` (gitignored). Each report r
   type it, and each label was checked against the index while planning. These items and `h01` carry
   `"tags": ["identifier"]`, so reports show the identifier questions separately from the rest (`untagged`). Keyword
   search is expected to help most on identifiers.
+- **v3 (M5, 63 items):** adds `c01`–`c10`. Each is a chatty, vague rephrasing of a verified item (typos, filler,
+  symptoms instead of terms), with that item's labels and `"tags": ["conversational"]`. They are written by Claude to
+  test query rewriting and multi-query expansion, which target exactly this kind of question.
 
 ## M4: vector vs keyword vs hybrid
 
