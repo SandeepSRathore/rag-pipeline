@@ -19,7 +19,22 @@ public record PipelineTrace(List<Stage> stages, long totalMillis) {
         this(stages, stages.stream().mapToLong(Stage::elapsedMillis).sum());
     }
 
-    public record Stage(String name, long elapsedMillis, List<Hit> hits) {
+    /** The queries that were searched: those of the last stage that lists any (expand, else rewrite); else empty. */
+    public List<String> queries() {
+        for (int i = stages.size() - 1; i >= 0; i--) {
+            if (!stages.get(i).queries().isEmpty()) {
+                return stages.get(i).queries();
+            }
+        }
+        return List.of();
+    }
+
+    /** @param queries for rewrite and expand stages: the queries they produced */
+    public record Stage(String name, long elapsedMillis, List<Hit> hits, List<String> queries) {
+
+        public Stage(String name, long elapsedMillis, List<Hit> hits) {
+            this(name, elapsedMillis, hits, List.of());
+        }
     }
 
     public record Hit(String id, String sourcePath, String breadcrumb, Double score) {

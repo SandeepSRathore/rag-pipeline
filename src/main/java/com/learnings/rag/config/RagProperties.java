@@ -34,11 +34,17 @@ public record RagProperties(@DefaultValue("corpus") Path corpusDir,
      * @param topK number of chunks handed to the model
      * @param similarityThreshold minimum cosine similarity for vector search; 0 keeps every positive similarity
      * @param mode which retrievers run: VECTOR, KEYWORD, or HYBRID (both, fused with reciprocal rank fusion)
-     * @param candidates in HYBRID mode, how many chunks each retriever contributes before fusion
+     * @param candidates how many chunks each retriever contributes before fusion (in HYBRID mode and per query variant)
+     * @param rewrite rewrite the question with the utility model before searching
+     * @param queryVariants extra phrasings of the question searched as well and fused across queries; 0 turns it off
+     * @param utilityModel chat model for rewriting and expansion; it must accept temperature 0 (gpt-5 models do not)
      */
     public record Retrieval(@DefaultValue("5") int topK,
             @DefaultValue("0.0") double similarityThreshold,
             @DefaultValue("VECTOR") RetrievalMode mode,
-            @DefaultValue("20") int candidates) {
+            @DefaultValue("20") int candidates,
+            @DefaultValue("false") boolean rewrite,
+            @DefaultValue("0") int queryVariants,
+            @DefaultValue("gpt-4.1-mini") String utilityModel) {
     }
 }

@@ -82,6 +82,18 @@ public class ReportWriter {
                     .append(" | ").append(summary.p95Millis()).append(" |\n");
         }
 
+        md.append("\nQueries searched per question (average): ").append(report.configs().stream()
+                .map(config -> {
+                    double average = config.items().stream().mapToInt(item -> Math.max(1, item.queries().size()))
+                            .average().orElse(1);
+                    String text = config.name() + " " + String.format(Locale.ROOT, "%.1f", average);
+                    if (config.options().queryVariants() > 0) {
+                        long fellBack = config.items().stream().filter(item -> item.queries().size() <= 1).count();
+                        text += " (expansion fell back on " + fellBack + ")";
+                    }
+                    return text;
+                })
+                .collect(joining(" · "))).append('\n');
         if (report.configs().stream().anyMatch(config -> !config.byTag().isEmpty())) {
             md.append("\n## By tag\n\n| Config | Tag | Items | hit@5 | recall@5 | MRR@10 |\n|---|---|---|---|---|---|\n");
             for (ConfigResult config : report.configs()) {

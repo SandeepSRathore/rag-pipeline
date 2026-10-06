@@ -40,8 +40,8 @@ multi-query, reranking) gets added only after an evaluation harness can measure 
 | M2 | Naive vector-only baseline: retrieval, grounded answers with `[n]` citations, SSE streaming, browser UI | ✅ done |
 | M3 | Golden set (generated, then reviewed) and an `EvalRunner` with retrieval metrics | ✅ done |
 | M4 | Keyword search (`tsvector`) plus reciprocal rank fusion: hybrid retrieval | ✅ done (hybrid is the default; see Evaluation) |
-| M5 | Query rewriting and multi-query expansion, parallel retrieval | next |
-| M6 | LLM reranker with a minimum score, so off-topic questions are refused | planned |
+| M5 | Query rewriting and multi-query expansion, parallel retrieval | ✅ done (both measured; off by default) |
+| M6 | LLM reranker with a minimum score, so off-topic questions are refused | next |
 | M7 | Generation evals (faithfulness, relevancy, citation validity), `/api/retrieve`, debug panel | planned |
 | M8 | *(optional)* Local `ollama` profile | planned |
 
@@ -339,6 +339,11 @@ sequenceDiagram
 
    **Fusion** (`ReciprocalRankFusion`, k = 60) merges the two rankings by rank alone and keeps the top-k (5). Both
    searches only see chunks of the current embedding model. The `vector` and `keyword` modes run one retriever alone.
+
+   Before searching, the question can optionally be rewritten (`rag.retrieval.rewrite`) or expanded into extra phrasings
+   (`rag.retrieval.query-variants`). Both use the utility model (`gpt-4.1-mini`). Each phrasing is then searched in
+   parallel, and the results are fused once more with RRF. Both are off by default: in the M5 eval neither beat plain
+   hybrid.
 2. **Assemble the prompt** (`PromptAssembler`):
    - The **system message** holds fixed rules (see [`prompts/answer-system.st`](src/main/resources/prompts/answer-system.st)):
      answer only from the sources; cite every factual statement as `[n]`; say *"I couldn't find this in the indexed
@@ -463,6 +468,9 @@ variables or `--name=value`.
 | `rag.retrieval.similarity-threshold` | `0.0` | Minimum cosine similarity. M6's reranker will own refusals. |
 | `rag.retrieval.mode` | `hybrid` | `vector`, `keyword` or `hybrid` (both in parallel, fused with RRF k=60). Chosen by the M4 eval. |
 | `rag.retrieval.candidates` | `20` | Hybrid: chunks each retriever contributes before fusion. |
+| `rag.retrieval.rewrite` | `false` | Rewrite the question with the utility model before searching. Off: it lowered MRR@10 in the M5 eval. |
+| `rag.retrieval.query-variants` | `0` | Extra phrasings searched in parallel and fused across queries (0 = off). Off: it lowered MRR@10 in the M5 eval. |
+| `rag.retrieval.utility-model` | `gpt-4.1-mini` | Model for rewriting and expansion. It must accept temperature 0, which gpt-5 models do not. |
 | `server.port` / `server.address` | `8081` / `127.0.0.1` | Loopback only, because there is no authentication. |
 | `spring.servlet.multipart.max-file-size` | `20MB` | Upload limit. |
 | `spring.mvc.async.request-timeout` | `5m` | Tomcat's 30-second default would cut off long streamed answers. |
@@ -563,18 +571,23 @@ reviewed by Claude at the user's request rather than by a human:
 The eval reports hit@5, recall@5, MRR@10 and p50/p95 retrieval latency for each retrieval configuration. Golden
 labels name a page and a heading path, not chunk ids, so the set survives re-chunking.
 
-**M4 comparison (53 questions, 2026-10-06; keyword search ranked with `ts_rank`):**
+**M5 comparison (63 questions, 2026-10-06):**
 
 | Config | hit@5 | recall@5 | MRR@10 | p50 ms | p95 ms |
 |---|---|---|---|---|---|
-| vector | 0.981 | 0.965 | 0.864 | 497 | 885 |
-| keyword | 0.962 | 0.950 | 0.840 | 16 | 52 |
-| hybrid | 0.981 | 0.975 | 0.915 | 469 | 715 |
+| vector | 0.984 | 0.971 | 0.851 | 500 | 658 |
+| keyword | 0.952 | 0.942 | 0.830 | 18 | 40 |
+| hybrid | 0.984 | 0.979 | 0.905 | 492 | 673 |
+| hybrid+rewrite | 0.921 | 0.915 | 0.784 | 1464 | 1744 |
+| hybrid+multiquery | 0.968 | 0.963 | 0.842 | 2032 | 2325 |
+| hybrid+rewrite+multiquery | 0.952 | 0.947 | 0.761 | 2982 | 3289 |
 
-Hybrid retrieval is the default (`rag.retrieval.mode=hybrid`), as the rule fixed before the run required. It matches
-vector search on paraphrased questions and lifts identifier questions from MRR@10 0.753 to 0.962. A first run that
-ranked keyword search with `ts_rank_cd` lost; why, and the per-tag results, are in
-[`eval/README.md`](eval/README.md#m4-vector-vs-keyword-vs-hybrid). The golden set is AI-reviewed.
+Hybrid retrieval stays the default (chosen in M4). Rewriting and multi-query expansion are implemented
+(`rag.retrieval.rewrite`, `rag.retrieval.query-variants`) but stay **off**: both scored below plain hybrid in a single
+run and multiplied retrieval latency 3–6×. Both the rewrites and the expansion variants tended to add generic "Spring
+AI" / "Spring Boot" terms; that is an association, not a measured cause. Details, the per-tag results and the next
+ideas are in
+[`eval/README.md`](eval/README.md#m5-rewriting-and-multi-query). The golden set is AI-reviewed.
 
 ## Design decisions
 
@@ -634,8 +647,6 @@ previous configuration.
      reuse the chunk's wording.
   2. A human reviews them into `eval/golden-set.json`.
   3. `EvalRunner` (`eval` profile) reports hit@5, recall@5, MRR@10 and p50/p95 latency.
-- **M5:** query rewriting and multi-query expansion, retrieval in parallel on virtual threads, and RRF across query
-  variants.
 - **M6:** an `LlmReranker` with a minimum score, so off-topic questions are refused.
 - **M7:** faithfulness and relevancy evaluators, citation validity, `POST /api/retrieve` and a debug panel in the UI.
 - **M8 (optional):** an `ollama` profile with local models.

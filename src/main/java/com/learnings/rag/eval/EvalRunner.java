@@ -91,8 +91,10 @@ public class EvalRunner {
             RetrievalResult retrieval = pipeline.retrieve(item.question(), config.options());
             long millis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
             List<RankedSource> ranked = retrieval.documents().stream().map(EvalRunner::ranked).toList();
+            List<String> queries = retrieval.trace().queries().isEmpty() ? List.of(item.question())
+                    : retrieval.trace().queries();
             results.add(new ItemResult(item.id(), item.question(), item.expectedSources(),
-                    RetrievalMetrics.score(item.expectedSources(), ranked), millis, ranked));
+                    RetrievalMetrics.score(item.expectedSources(), ranked), millis, ranked, queries));
         }
         RetrievalMetrics.Summary summary = RetrievalMetrics.summarize(
                 results.stream().map(ItemResult::score).toList(),

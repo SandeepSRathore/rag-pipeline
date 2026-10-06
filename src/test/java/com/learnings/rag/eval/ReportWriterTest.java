@@ -94,4 +94,21 @@ class ReportWriterTest {
                 "| vector | identifier | 1 | 0.000 | 0.000 | 0.000 |",
                 "| vector | untagged | 1 | 1.000 | 1.000 | 1.000 |");
     }
+
+    @Test
+    void reportsHowManyQueriesEachConfigSearchedAndHowOftenExpansionFellBack() {
+        ExpectedSource source = new ExpectedSource("a.adoc", "");
+        ItemResult expanded = new ItemResult("q01", "Question?", List.of(source), new ItemScore(1, true, 1.0, 1.0), 900,
+                List.of(), List.of("Question?", "v1", "v2", "v3"));
+        ItemResult fellBack = new ItemResult("q02", "Question 2?", List.of(source), new ItemScore(1, true, 1.0, 1.0), 400,
+                List.of(), List.of("Question 2?"));
+        RetrievalMetrics.Summary summary = RetrievalMetrics.summarize(List.of(expanded.score(), fellBack.score()),
+                List.of(900L, 400L));
+        EvalReport report = new EvalReport(Instant.parse("2026-10-06T09:30:00Z"), report(0).run(), List.of(
+                new ConfigResult("hybrid+multiquery", new RetrievalOptions(10, 0.0, RetrievalMode.HYBRID, 20, false, 3),
+                        summary, List.of(), List.of(expanded, fellBack))));
+
+        assertThat(ReportWriter.markdown(report))
+                .contains("Queries searched per question (average): hybrid+multiquery 2.5 (expansion fell back on 1)");
+    }
 }
