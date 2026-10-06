@@ -259,6 +259,8 @@ Run TDD inside each milestone (superpowers:test-driven-development). Pause at M3
     - HYBRID becomes the default if its MRR@10 ≥ vector's and its hit@5 is no more than one question (1/N) below
       vector's.
     - Otherwise VECTOR stays, and the report says why.
+    - **Outcome** (M4 report 2026-10-06T05-48-24Z): VECTOR stays. Hybrid MRR@10 0.736 vs vector 0.864; hit@5 0.962
+      vs 0.981.
 25. **Golden items take optional `tags`.**
     - 12 identifier questions (`i01`–`i12`) and `h01` are tagged `identifier`, which makes golden set v2 53 items.
     - Reports add a per-tag table.

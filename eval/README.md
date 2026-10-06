@@ -79,6 +79,56 @@ This writes `eval/reports/<UTC time>.md` and `.json` (gitignored). Each report r
   `"tags": ["identifier"]`, so reports show the identifier questions separately from the rest (`untagged`). Keyword
   search is expected to help most on identifiers.
 
+## M4: vector vs keyword vs hybrid
+
+Recorded on 2026-10-06 from `eval/reports/2026-10-06T05-48-24Z.md` (golden set v2, 53 questions):
+
+| | |
+|---|---|
+| Golden set | `eval/golden-set.json` (53 questions, sha256 `9d43cfa4e4cb…`) |
+| Index | 51 corpus pages, 0 uploads, 1106 chunks |
+| Embedding model | `text-embedding-3-small` |
+| Chunking | max 500 · min 50 · overlap 60 tokens |
+
+| Config | hit@5 | recall@5 | MRR@10 | p50 ms | p95 ms |
+|---|---|---|---|---|---|
+| vector | 0.981 | 0.965 | 0.864 | 485 | 777 |
+| keyword | 0.509 | 0.472 | 0.359 | 12 | 31 |
+| hybrid | 0.962 | 0.937 | 0.736 | 476 | 731 |
+
+| Config | Tag | Items | hit@5 | recall@5 | MRR@10 |
+|---|---|---|---|---|---|
+| vector | identifier | 13 | 1.000 | 0.962 | 0.753 |
+| vector | untagged | 40 | 0.975 | 0.967 | 0.900 |
+| keyword | identifier | 13 | 0.538 | 0.500 | 0.549 |
+| keyword | untagged | 40 | 0.500 | 0.463 | 0.298 |
+| hybrid | identifier | 13 | 0.923 | 0.846 | 0.785 |
+| hybrid | untagged | 40 | 0.975 | 0.967 | 0.720 |
+
+**Default mode: VECTOR stays.** The rule fixed before the run (spec amendment 24) makes HYBRID the default only if
+its MRR@10 is ≥ vector's and its hit@5 is no more than one question (1/53 ≈ 0.019) below vector's. Hybrid's MRR@10 is
+0.736 against vector's 0.864, so the rule keeps VECTOR.
+
+What the numbers show:
+
+- **Vector search is strong on this set.** It has 0.981 hit@5, and even identifier questions all land in its top 5
+  (it ranks them lower, at MRR@10 0.753, than the rest at 0.900). The golden questions were mostly generated from
+  single chunks, which suits vector search.
+- **Keyword search is weak, and the reason is the ranking, not the matching.** Postgres tokenizes the identifiers
+  correctly; for example, `spring.ai.vectorstore.neo4j.embedding-dimension` matches exactly. But `ts_rank_cd` has no
+  IDF (no rarer-is-more-informative weighting), so with OR semantics a chunk that says "default" many times
+  outranks the one table row holding the exact property. Three different identifier questions got the identical
+  keyword top 3.
+- **Hybrid helps identifiers a little and hurts the rest.**
+  - On identifiers its MRR@10 is 0.785 (vector 0.753), but its hit@5 is 0.923 (vector 1.000).
+  - On untagged questions its MRR@10 drops from 0.900 to 0.720.
+  - The cause is equal-weight RRF: a noisy keyword ranking pushes vector's correct rank-1 chunk down. Its latency
+    is the same as vector's, since keyword search takes about 12 ms and runs in parallel.
+- **Exploratory, outside the harness:** keyword search that requires all terms first and falls back to any term
+  ("AND→OR") would reach hit@5 0.604 and MRR@10 0.484 overall, and 0.846 / 0.857 on identifiers. That is against
+  0.509 / 0.359 and 0.538 / 0.549 as built. It is the obvious next keyword experiment, together with weighting RRF
+  towards vector search.
+
 ## Baseline
 
 Recorded on 2026-10-06 from `eval/reports/2026-10-06T04-51-23Z.md`:

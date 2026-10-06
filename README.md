@@ -39,8 +39,8 @@ multi-query, reranking) gets added only after an evaluation harness can measure 
 | M1 | Structure-aware chunking, idempotent ingestion, document API, corpus fetch script | ✅ done |
 | M2 | Naive vector-only baseline: retrieval, grounded answers with `[n]` citations, SSE streaming, browser UI | ✅ done |
 | M3 | Golden set (generated, then reviewed) and an `EvalRunner` with retrieval metrics | ✅ done |
-| M4 | Keyword search (`tsvector`) plus reciprocal rank fusion: hybrid retrieval | next |
-| M5 | Query rewriting and multi-query expansion, parallel retrieval | planned |
+| M4 | Keyword search (`tsvector`) plus reciprocal rank fusion: hybrid retrieval | ✅ done (vector stays the default; see Evaluation) |
+| M5 | Query rewriting and multi-query expansion, parallel retrieval | next |
 | M6 | LLM reranker with a minimum score, so off-topic questions are refused | planned |
 | M7 | Generation evals (faithfulness, relevancy, citation validity), `/api/retrieve`, debug panel | planned |
 | M8 | *(optional)* Local `ollama` profile | planned |
@@ -448,6 +448,8 @@ variables or `--name=value`.
 | `rag.chunking.overlap-tokens` | `60` | Trailing prose repeated at the start of the next chunk. |
 | `rag.retrieval.top-k` | `5` | Chunks handed to the model. |
 | `rag.retrieval.similarity-threshold` | `0.0` | Minimum cosine similarity. M6's reranker will own refusals. |
+| `rag.retrieval.mode` | `vector` | `vector`, `keyword` or `hybrid` (both, fused with RRF k=60). Chosen by the M4 eval; hybrid lost on MRR@10. |
+| `rag.retrieval.candidates` | `20` | Hybrid: chunks each retriever contributes before fusion. |
 | `server.port` / `server.address` | `8081` / `127.0.0.1` | Loopback only, because there is no authentication. |
 | `spring.servlet.multipart.max-file-size` | `20MB` | Upload limit. |
 | `spring.mvc.async.request-timeout` | `5m` | Tomcat's 30-second default would cut off long streamed answers. |
@@ -548,14 +550,18 @@ reviewed by Claude at the user's request rather than by a human:
 The eval reports hit@5, recall@5, MRR@10 and p50/p95 retrieval latency for each retrieval configuration. Golden
 labels name a page and a heading path, not chunk ids, so the set survives re-chunking.
 
-**Baseline (vector only, 41 questions, 2026-10-06):**
+**M4 comparison (53 questions, 2026-10-06):**
 
 | Config | hit@5 | recall@5 | MRR@10 | p50 ms | p95 ms |
 |---|---|---|---|---|---|
-| vector | 0.976 | 0.967 | 0.902 | 488 | 830 |
+| vector | 0.981 | 0.965 | 0.864 | 485 | 777 |
+| keyword | 0.509 | 0.472 | 0.359 | 12 | 31 |
+| hybrid | 0.962 | 0.937 | 0.736 | 476 | 731 |
 
-The golden set was AI-reviewed and is near ceiling for vector search; see [`eval/README.md`](eval/README.md#baseline)
-for what that means for M4–M6.
+Vector search stays the default (`rag.retrieval.mode=vector`), as the rule fixed before the run required: hybrid
+lost on MRR@10. Postgres's `ts_rank_cd` ranks without IDF, which keeps keyword search weak. Details, the per-tag
+results and the next experiment are in [`eval/README.md`](eval/README.md#m4-vector-vs-keyword-vs-hybrid). The golden
+set is AI-reviewed and was mostly generated from single chunks, which favours vector search.
 
 ## Design decisions
 
