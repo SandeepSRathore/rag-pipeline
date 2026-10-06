@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
 
 import org.slf4j.Logger;
@@ -17,6 +18,7 @@ import com.learnings.rag.config.RagProperties;
 import com.learnings.rag.eval.EvalReport.ConfigResult;
 import com.learnings.rag.eval.EvalReport.ItemResult;
 import com.learnings.rag.eval.EvalReport.RunInfo;
+import com.learnings.rag.eval.EvalReport.TagSummary;
 import com.learnings.rag.eval.RetrievalMetrics.RankedSource;
 import com.learnings.rag.ingest.ChunkMetadata;
 import com.learnings.rag.retrieval.RetrievalPipeline;
@@ -27,6 +29,8 @@ import com.learnings.rag.retrieval.RetrievalResult;
 public class EvalRunner {
 
     private static final Logger log = LoggerFactory.getLogger(EvalRunner.class);
+
+    static final String UNTAGGED = "untagged";
 
     private final RetrievalPipeline pipeline;
     private final ChunkCatalog catalog;
@@ -95,7 +99,26 @@ public class EvalRunner {
                 results.stream().map(ItemResult::latencyMillis).toList());
         log.info("{}: hit@5 {} · recall@5 {} · MRR@10 {} · p50 {} ms · p95 {} ms", config.name(),
                 summary.hitAt5(), summary.recallAt5(), summary.mrrAt10(), summary.p50Millis(), summary.p95Millis());
-        return new ConfigResult(config.name(), config.options(), summary, results);
+        return new ConfigResult(config.name(), config.options(), summary, summarizeByTag(items, results), results);
+    }
+
+    /** One summary per tag, plus "untagged" for the rest, in tag order; empty when no item is tagged. */
+    static List<TagSummary> summarizeByTag(List<GoldenItem> items, List<ItemResult> results) {
+        if (items.stream().allMatch(item -> item.tags().isEmpty())) {
+            return List.of();
+        }
+        Map<String, List<ItemResult>> groups = new TreeMap<>();
+        for (int i = 0; i < items.size(); i++) {
+            List<String> tags = items.get(i).tags().isEmpty() ? List.of(UNTAGGED) : items.get(i).tags();
+            for (String tag : tags) {
+                groups.computeIfAbsent(tag, key -> new ArrayList<>()).add(results.get(i));
+            }
+        }
+        return groups.entrySet().stream()
+                .map(group -> new TagSummary(group.getKey(), RetrievalMetrics.summarize(
+                        group.getValue().stream().map(ItemResult::score).toList(),
+                        group.getValue().stream().map(ItemResult::latencyMillis).toList())))
+                .toList();
     }
 
     private static RankedSource ranked(Document document) {

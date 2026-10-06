@@ -67,6 +67,26 @@ class AnswerServiceTest {
     }
 
     @Test
+    void sourcesCarryTheScoreOfEveryStageThatReturnedTheChunk() {
+        RetrievalResult retrieval = oneChunk();
+        Document chunk = retrieval.documents().getFirst();
+        PipelineTrace trace = new PipelineTrace(List.of(
+                new PipelineTrace.Stage("vector", 3, List.of(new PipelineTrace.Hit(chunk.getId(), "pgvector.adoc", "Indexes", 0.61))),
+                new PipelineTrace.Stage("keyword", 2, List.of(new PipelineTrace.Hit(chunk.getId(), "pgvector.adoc", "Indexes", 0.08))),
+                new PipelineTrace.Stage("fusion", 0, List.of(new PipelineTrace.Hit(chunk.getId(), "pgvector.adoc", "Indexes", 0.0325)))),
+                4);
+        when(pipeline.retrieve(anyString())).thenReturn(new RetrievalResult(retrieval.documents(), trace));
+
+        StepVerifier.create(service(new StubChatModel("ok [1]")).answer("q"))
+                .assertNext(event -> assertThat(event).isInstanceOfSatisfying(ChatEvent.Sources.class,
+                        sources -> assertThat(sources.sources().getFirst().scores())
+                                .containsExactly(Map.entry("vector", 0.61), Map.entry("keyword", 0.08),
+                                        Map.entry("fusion", 0.0325))))
+                .thenConsumeWhile(event -> true)
+                .verifyComplete();
+    }
+
+    @Test
     void emptyRetrievalAnswersWithoutCallingTheModel() {
         when(pipeline.retrieve(anyString())).thenReturn(new RetrievalResult(List.of(), new PipelineTrace(List.of())));
         StubChatModel model = new StubChatModel("should never be streamed");

@@ -245,6 +245,45 @@ Run TDD inside each milestone (superpowers:test-driven-development). Pause at M3
     The baseline is therefore measured against an AI-reviewed set, and the docs say so. The intended process is
     unchanged: a human review comes before the golden set is used. `expectedSources` are relevant answer locations,
     as in IR: hit@5 needs any of them in the top 5, and recall@5 is the share found there.
+22. **Keyword search uses OR semantics (from M4 planning).**
+    - The question is parsed by `websearch_to_tsquery('english', …)`, which handles stop words, stemming and quoted
+      phrases. The parsed `&`s are then replaced with `|`, and `ts_rank_cd` ranks the results.
+    - `-negation` is ignored. OR-ed, a negated term would match every chunk that lacks it at score 0, so rows scoring
+      0 are dropped (fixed after the M4 review).
+    - Probe on the real index: with AND, 2 of 4 natural-language questions matched 0 chunks.
+    - Dotted identifiers stay single lexemes, so exact identifiers still match precisely.
+    - Keyword search is filtered to the current embedding model, like vector search.
+23. **HYBRID runs vector and keyword search in parallel** on virtual threads, `rag.retrieval.candidates` (20) each,
+    and fuses them with RRF (k = 60) into `topK`.
+    - Ties keep first-seen order, which puts vector first.
+    - `PipelineTrace.totalMillis` is wall-clock time, not the sum of the stages.
+24. **`rag.retrieval.mode` stays `VECTOR` until the M4 report decides.**
+    - HYBRID becomes the default if its MRR@10 ≥ vector's and its hit@5 is no more than one question (1/N) below
+      vector's.
+    - Otherwise VECTOR stays, and the report says why.
+    - **Outcome** (M4 report 2026-10-06T05-48-24Z): VECTOR stays. Hybrid MRR@10 0.736 vs vector 0.864; hit@5 0.962
+      vs 0.981.
+    - The outcome holds for the `ts_rank_cd` keyword retriever as built. That rank function scores every occurrence of
+      any OR-ed term at full weight, so common words outrank rare identifiers; the M4 review showed the weakness is
+      this, not missing IDF.
+    - Exploratory, outside the harness: `ts_rank` reaches keyword-alone hit@5 0.925 and MRR@10 0.823. Switching to it
+      is a candidate amendment, to be measured under the same rule.
+    - **Re-run outcome** (amendment 27, report 2026-10-06T09-34-14Z): **HYBRID becomes the default.** Hybrid MRR@10
+      0.915 vs vector 0.864; hit@5 0.981 vs 0.981.
+25. **Golden items take optional `tags`.**
+    - 12 identifier questions (`i01`–`i12`) and `h01` are tagged `identifier`, which makes golden set v2 53 items.
+    - Reports add a per-tag table.
+    - The M3 baseline (v1, 41 items) stays recorded as history.
+26. **Chat sources carry `scores`**, a map from stage to score (`vector`, `keyword`, `fusion`). The UI shows them,
+    labelling the vector score "similarity".
+27. **Keyword ranking switches from `ts_rank_cd` to `ts_rank(content_tsv, query, 1)`** (2026-10-06, user decision
+    after the M4 review).
+    - Under OR semantics, `ts_rank_cd` scores every occurrence of any term at full weight, so common words outrank rare
+      identifiers. Keyword search alone scored 0.509 hit@5, against 0.962 for normalised `ts_rank` in an exploratory
+      run.
+    - Normalization 1 divides by 1 + log of the chunk's length.
+    - The variant was chosen after seeing exploratory numbers on this same golden set, which risks overfitting to it.
+    - The M4 comparison is re-run with the amendment 24 rule unchanged.
 
 **Scope decision (2026-10-05):** this stays a learning project. Production hardening (auth, document ACLs, rate limits,
 async ingestion jobs, CI eval gates, deployment) is intentionally out of scope.

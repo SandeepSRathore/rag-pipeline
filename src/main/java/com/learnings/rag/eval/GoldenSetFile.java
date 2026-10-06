@@ -107,6 +107,9 @@ public class GoldenSetFile {
             if (isBlank(item.question())) {
                 problems.add(label + ": missing question");
             }
+            if (item.tags().stream().anyMatch(tag -> tag == null || tag.isBlank())) {
+                problems.add(label + ": blank tag");
+            }
             if (item.expectedSources() == null || item.expectedSources().isEmpty()) {
                 problems.add(label + ": no expectedSources");
                 continue;

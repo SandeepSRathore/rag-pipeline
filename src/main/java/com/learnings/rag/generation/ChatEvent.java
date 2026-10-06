@@ -6,14 +6,17 @@ import java.util.stream.IntStream;
 import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.document.Document;
 
+import com.learnings.rag.retrieval.RetrievalResult;
+
 /** The SSE protocol of /api/chat: one Sources, any number of Tokens, then Done, or Error at any point. */
 public sealed interface ChatEvent {
 
     record Sources(List<SourceRef> sources) implements ChatEvent {
 
-        static Sources from(List<Document> documents) {
+        static Sources from(RetrievalResult retrieval) {
+            List<Document> documents = retrieval.documents();
             return new Sources(IntStream.range(0, documents.size())
-                    .mapToObj(i -> SourceRef.of(i + 1, documents.get(i)))
+                    .mapToObj(i -> SourceRef.of(i + 1, documents.get(i), retrieval.trace()))
                     .toList());
         }
     }

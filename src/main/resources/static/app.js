@@ -121,11 +121,18 @@ function renderSources(sources) {
   $('#sources').replaceChildren(...sources.map((s) => element('li', { id: `source-${s.n}` },
     element('div', { className: 'source-head' },
       element('strong', { textContent: s.breadcrumb ? `${s.title} › ${s.breadcrumb}` : s.title }),
-      element('span', { className: 'score', textContent: s.score == null ? '' : `similarity ${s.score.toFixed(3)}` })),
+      element('span', { className: 'score', textContent: scoreText(s) })),
     element('div', { className: 'source-path', textContent: s.sourcePath }),
     element('details', {},
       element('summary', { textContent: 'Chunk text' }),
       element('pre', { textContent: s.text })))));
+}
+
+// The score of each stage that returned the chunk; vector search is shown as "similarity".
+function scoreText(s) {
+  const entries = Object.entries(s.scores || {});
+  if (entries.length === 0) return s.score == null ? '' : `score ${s.score.toFixed(3)}`;
+  return entries.map(([stage, value]) => `${stage === 'vector' ? 'similarity' : stage} ${value.toFixed(3)}`).join(' · ');
 }
 
 function showSource(n) {

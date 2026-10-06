@@ -15,6 +15,7 @@ import com.learnings.rag.eval.EvalReport.ItemResult;
 import com.learnings.rag.eval.EvalReport.RunInfo;
 import com.learnings.rag.eval.RetrievalMetrics.ItemScore;
 import com.learnings.rag.eval.RetrievalMetrics.RankedSource;
+import com.learnings.rag.retrieval.RetrievalMode;
 import com.learnings.rag.retrieval.RetrievalOptions;
 
 import tools.jackson.databind.json.JsonMapper;
@@ -37,8 +38,11 @@ class ReportWriterTest {
                 List.of(120L, 80L));
         RunInfo run = new RunInfo("eval/golden-set.json", "a".repeat(64), 2, "text-embedding-3-small",
                 new RagProperties.Chunking(500, 50, 60), new IndexStats(52, uploads, 1106));
+        List<EvalReport.TagSummary> byTag = List.of(
+                new EvalReport.TagSummary("identifier", RetrievalMetrics.summarize(List.of(miss.score()), List.of(80L))),
+                new EvalReport.TagSummary("untagged", RetrievalMetrics.summarize(List.of(hit.score()), List.of(120L))));
         return new EvalReport(Instant.parse("2026-10-06T09:30:00Z"), run,
-                List.of(new ConfigResult("vector", new RetrievalOptions(10, 0.0), summary, List.of(hit, miss))));
+                List.of(new ConfigResult("vector", new RetrievalOptions(10, 0.0, RetrievalMode.VECTOR, 20), summary, byTag, List.of(hit, miss))));
     }
 
     @Test
@@ -81,5 +85,13 @@ class ReportWriterTest {
                 "52 corpus pages, 0 uploads, 1106 chunks",
                 "`text-embedding-3-small`",
                 "max 500 · min 50 · overlap 60 tokens");
+    }
+
+    @Test
+    void byTagTableShowsEachTagPerConfig() {
+        assertThat(ReportWriter.markdown(report(0))).contains(
+                "## By tag",
+                "| vector | identifier | 1 | 0.000 | 0.000 | 0.000 |",
+                "| vector | untagged | 1 | 1.000 | 1.000 | 1.000 |");
     }
 }

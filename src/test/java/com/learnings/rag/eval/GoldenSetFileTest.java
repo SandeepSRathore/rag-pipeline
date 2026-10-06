@@ -95,4 +95,30 @@ class GoldenSetFileTest {
 
         assertThatThrownBy(() -> file.read(path)).hasMessageContaining("the set is empty");
     }
+
+    @Test
+    void tagsAreOptionalAndRoundTrip() throws IOException {
+        Path path = dir.resolve("golden-set.json");
+        Files.writeString(path, """
+                [
+                  {"id": "q01", "question": "How do I enable HNSW?",
+                   "expectedSources": [{"sourcePath": "a.adoc", "sectionPrefix": ""}]},
+                  {"id": "i01", "question": "What does spring.ai.x do?",
+                   "expectedSources": [{"sourcePath": "a.adoc", "sectionPrefix": ""}], "tags": ["identifier"]}
+                ]""");
+
+        GoldenSet set = file.read(path);
+
+        assertThat(set.items()).extracting(GoldenItem::tags).containsExactly(List.of(), List.of("identifier"));
+    }
+
+    @Test
+    void blankTagsAreRejected() throws IOException {
+        Path path = dir.resolve("golden-set.json");
+        Files.writeString(path, """
+                [{"id": "q01", "question": "How?", "expectedSources": [{"sourcePath": "a.adoc", "sectionPrefix": ""}],
+                  "tags": [" "]}]""");
+
+        assertThatThrownBy(() -> file.read(path)).hasMessageContaining("q01: blank tag");
+    }
 }

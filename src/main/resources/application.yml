@@ -57,6 +57,8 @@ rag:
   retrieval:
     top-k: 5
     similarity-threshold: 0.0
+    mode: hybrid          # vector | keyword | hybrid; chosen by the M4 eval (see eval/README.md)
+    candidates: 20        # hybrid: chunks each retriever contributes before fusion
   eval:
     golden-set: eval/golden-set.json         # reviewed (see eval/README.md), committed
     reports-dir: eval/reports                # gitignored

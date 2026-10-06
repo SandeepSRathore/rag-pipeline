@@ -14,8 +14,12 @@ public record EvalReport(Instant startedAt, RunInfo run, List<ConfigResult> conf
             RagProperties.Chunking chunking, IndexStats index) {
     }
 
+    /** @param byTag one summary per tag (plus "untagged"); empty when no golden item is tagged */
     public record ConfigResult(String name, RetrievalOptions options, RetrievalMetrics.Summary summary,
-            List<ItemResult> items) {
+            List<TagSummary> byTag, List<ItemResult> items) {
+    }
+
+    public record TagSummary(String tag, RetrievalMetrics.Summary summary) {
     }
 
     /** @param retrieved the ranked chunks, best first (up to {@link RetrievalMetrics#MRR_K}) */
