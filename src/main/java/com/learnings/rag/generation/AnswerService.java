@@ -60,7 +60,7 @@ public class AnswerService {
 
     private Flux<ChatEvent> generate(String question, RetrievalResult retrieval) {
         List<Document> documents = retrieval.documents();
-        ChatEvent sources = ChatEvent.Sources.from(documents);
+        ChatEvent sources = ChatEvent.Sources.from(retrieval);
         long retrievalMillis = retrieval.trace().totalMillis();
         if (documents.isEmpty()) {
             return Flux.just(sources, new ChatEvent.Token(NO_SOURCES_ANSWER),
