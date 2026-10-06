@@ -1,0 +1,522 @@
+[
+  {
+    "id": "q01",
+    "question": "My recursive advisor calls the model several times; how do I report the total token count instead of just the last call's?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/advisors-recursive.adoc",
+        "sectionPrefix": "Accumulating Token Usage in Custom Recursive Advisors"
+      }
+    ],
+    "referenceAnswer": "Create a UsageAccumulator for each adviseCall (or for each subscription when streaming, using Flux.defer), call usage.addRoundResponse(response.chatResponse()) after each model call, and when finished call usage.applyAccumulatedUsage(response) to attach the combined token usage to the final response. UsageAccumulator delegates the actual token calculations to UsageCalculator.",
+    "sourceExcerpt": "Recursive Advisors › Accumulating Token Usage in Custom Recursive Advisors\n\nA recursive advisor performs more than one model call per invocation, so it must accumulate the token usage of every call to report a correct cumulative total; otherwise only the last call's usage is visible to the caller.\nSpring AI provides `org.springframework.ai.chat.client.advisor.UsageAccumulator` to make this straightforward.\nCreate one instance per `adviseCall` invocation (or per stream subscription, inside a `Flux.defer`, to keep it subscription-local), fold each round's response in with `addRoundResponse(...)`, and stamp the cumulative total onto the final response with `applyAccumulatedUsage(...)`:\n\n[source,java]\n----\nUsageAccumulator usage = new UsageAccumulator();\nChatClientResponse response;\ndo {\n    response = callAdvisorChain.copy(this).nextCall(request);\n    usage.addRoundResponse(response.chatResponse());\n    // ... decide whether to loop again ...\n}\nwhile (loopAgain);\nreturn usage.applyAccumulatedUsage(response);\n----\n\nThe underlying token math lives in `org.springframework.ai.support.UsageCalculator` (`accumulateResponseUsage` and `withUsage`), which `UsageAccumulator` wraps."
+  },
+  {
+    "id": "q02",
+    "question": "What replaced CallAroundAdvisor and StreamAroundAdvisor in Spring AI 1.0?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/advisors.adoc",
+        "sectionPrefix": "Breaking API Changes › Advisor Interfaces"
+      }
+    ],
+    "referenceAnswer": "CallAroundAdvisor was replaced by CallAdvisor and StreamAroundAdvisor by StreamAdvisor. The corresponding chains are now CallAdvisorChain and StreamAdvisorChain, and the request/response types were renamed to ChatClientRequest and ChatClientResponse.",
+    "sourceExcerpt": "Advisors API › Breaking API Changes › Advisor Interfaces\n\n* In 1.0 M2, there were separate `RequestAdvisor` and `ResponseAdvisor` interfaces.\n** `RequestAdvisor` was invoked before the `ChatModel.call` and `ChatModel.stream` methods.\n** `ResponseAdvisor` was called after these methods.\n* In 1.0 M3, these interfaces have been replaced with:\n** `CallAroundAdvisor`\n** `StreamAroundAdvisor`\n* The `StreamResponseMode`, previously part of `ResponseAdvisor`, has been removed.\n* In 1.0.0 these interfaces have been replaced:\n** `CallAroundAdvisor` -> `CallAdvisor`, `StreamAroundAdvisor` -> `StreamAdvisor`, `CallAroundAdvisorChain` -> `CallAdvisorChain` and `StreamAroundAdvisorChain` -> `StreamAdvisorChain`. \n** `AdvisedRequest` -> `ChatClientRequest` and `AdivsedResponse` -> `ChatClientResponse`."
+  },
+  {
+    "id": "q03",
+    "question": "How do I customize how VectorStoreChatMemoryAdvisor merges retrieved memories into the system prompt?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/chat-memory.adoc",
+        "sectionPrefix": "Memory in Chat Client › VectorStoreChatMemoryAdvisor › Custom Template"
+      }
+    ],
+    "referenceAnswer": "Pass your PromptTemplate to the advisor using its .promptTemplate(...) builder method. The template may rely on any TemplateRenderer and must include placeholders named instructions (for the original system text) and long_term_memory (for the retrieved conversation memory).",
+    "sourceExcerpt": "Chat Memory › Memory in Chat Client › VectorStoreChatMemoryAdvisor › Custom Template\n\nThe `VectorStoreChatMemoryAdvisor` uses a default template to augment the system message with the retrieved conversation memory. You can customize this behavior by providing your own `PromptTemplate` object via the `.promptTemplate()` builder method.\n\nNOTE: The `PromptTemplate` provided here customizes how the advisor merges retrieved memory with the system message. This is distinct from configuring a `TemplateRenderer` on the `ChatClient` itself (using `.templateRenderer()`), which affects the rendering of the initial user/system prompt content *before* the advisor runs. See xref:api/chatclient.adoc#_prompt_templates[ChatClient Prompt Templates] for more details on client-level template rendering.\n\nThe custom `PromptTemplate` can use any `TemplateRenderer` implementation (by default, it uses `StPromptTemplate` based on the https://www.stringtemplate.org/[StringTemplate] engine). The important requirement is that the template must contain the following two placeholders:\n\n* an `instructions` placeholder to receive the original system message.\n* a `long_term_memory` placeholder to receive the retrieved conversation memory."
+  },
+  {
+    "id": "q04",
+    "question": "How do I set the Anthropic service tier for a single chat request in Spring AI?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/chat/anthropic-chat.adoc",
+        "sectionPrefix": ""
+      }
+    ],
+    "referenceAnswer": "Create AnthropicChatOptions with the desired AnthropicServiceTier and pass it with the Prompt when calling the chat model. For example: var options = AnthropicChatOptions.builder().serviceTier(AnthropicServiceTier.AUTO).build(); ChatResponse response = chatModel.call(new Prompt(\"Hello\", options));",
+    "sourceExcerpt": "Anthropic Chat\n\n`AnthropicChatOptions` implements the `StructuredOutputChatOptions` interface, which provides portable `getOutputSchema()` method. This allows structured output to work with Spring AI's generic structured output infrastructure.\n\nAnthropic offers different https://docs.claude.com/en/api/service-tiers[service tiers] that control capacity routing for API requests. You can use `AnthropicServiceTier.AUTO` to opportunistically use priority capacity (lower latency) when available, or `STANDARD_ONLY` to always use standard capacity.\n\nVia Spring Boot properties:\n\n[source,properties]\n----\nspring.ai.anthropic.chat.service-tier=auto\n----\n\nOr programmatically per-request:\n\n[source,java]\n----\nvar options = AnthropicChatOptions.builder()\n    .serviceTier(AnthropicServiceTier.AUTO)\n    .build();\n\nChatResponse response = chatModel.call(new Prompt(\"Hello\", options));\n----"
+  },
+  {
+    "id": "q06",
+    "question": "How do I send a synchronous chat completion request with OllamaApi in Java?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/chat/ollama-chat.adoc",
+        "sectionPrefix": "Low-level OllamaApi Client [[low-level-api]]"
+      }
+    ],
+    "referenceAnswer": "Instantiate OllamaApi with your host and port, construct a ChatRequest that sets the model, messages and options, and then call ollamaApi.chat(request) to obtain a ChatResponse.",
+    "sourceExcerpt": "Ollama Chat › Low-level OllamaApi Client [[low-level-api]]\n\nThe link:https://github.com/spring-projects/spring-ai/blob/main/models/spring-ai-ollama/src/main/java/org/springframework/ai/ollama/api/OllamaApi.java[OllamaApi] provides a lightweight Java client for the Ollama Chat Completion API link:https://github.com/ollama/ollama/blob/main/docs/api.md#generate-a-chat-completion[Ollama Chat Completion API].\n\nThe following class diagram illustrates the `OllamaApi` chat interfaces and building blocks:\n\nimage::ollama-chat-completion-api.jpg[OllamaApi Chat Completion API Diagram, 800, 600]\n\nNOTE: The `OllamaApi` is a low-level API and is not recommended for direct use. Use the `OllamaChatModel` instead.\n\nHere is a simple snippet showing how to use the API programmatically:\n\n[source,java]\n----\nOllamaApi ollamaApi = new OllamaApi(\"YOUR_HOST:YOUR_PORT\");\n\n// Sync request\nvar request = ChatRequest.builder(\"orca-mini\")\n    .stream(false) // not streaming\n    .messages(List.of(\n            Message.builder(Role.SYSTEM)\n                .content(\"You are a geography teacher. You are talking to a student.\")\n                .build(),\n            Message.builder(Role.USER)\n                .content(\"What is the capital of Bulgaria and what is the size? \"\n                        + \"What is the national anthem?\")\n                .build()))\n    .options(OllamaChatOptions.builder().temperature(0.9).build())\n    .build();\n\nChatResponse response = this.ollamaApi.chat(this.request);\n\n// Streaming request\nvar request2 = ChatRequest.builder(\"orca-mini\")\n    .ttream(true) // streaming\n    .messages(List.of(Message.builder(Role.USER)\n        .content(\"What is the capital of Bulgaria and what is the size? \" + \"What is the national anthem?\")\n        .build()))\n    .options(OllamaChatOptions.builder().temperature(0.9).build().toMap())\n    .build();\n\nFlux<ChatResponse> streamingResponse = this.ollamaApi.streamingChat(this.request2);\n----"
+  },
+  {
+    "id": "q07",
+    "question": "Do I need to annotate Kotlin data class properties with @get:JsonProperty(required = true) for OpenAI structured outputs?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/chat/openai-chat.adoc",
+        "sectionPrefix": "Structured Outputs › Configuration › Integrating with BeanOutputConverter Utilities"
+      }
+    ],
+    "referenceAnswer": "OpenAI expects required fields, but when using Kotlin data classes the Kotlin reflection/metadata checks nullability and default constructor values to decide which properties are required, so in most cases you do not need to add @get:JsonProperty(required = true). To change the JSON name, apply @get:JsonProperty(value = \"custom_name\") on the getter using the @get: site-target.",
+    "sourceExcerpt": "OpenAI Chat › Structured Outputs › Configuration › Integrating with BeanOutputConverter Utilities\n\nNOTE: Although this is optional for JSON Schema, OpenAI link:https://platform.openai.com/docs/guides/structured-outputs/all-fields-must-be-required#all-fields-must-be-required[mandates] required fields for the structured response to function correctly. Kotlin reflection is used to infer which property are required or not based on the nullability of types and default values of parameters, so for most use case `@get:JsonProperty(required = true)` is not needed. `@get:JsonProperty(value = \"custom_name\")` can be useful to customize the property name. Make sure to generate the annotation on the related getters with this `@get:` syntax, see link:https://kotlinlang.org/docs/annotations.html#annotation-use-site-targets[related documentation]."
+  },
+  {
+    "id": "q08",
+    "question": "How do I set topK and topP sampling when building ChatOptions in Java?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/chat/prompt-engineering-patterns.adoc",
+        "sectionPrefix": "1. Configuration › LLM Output Configuration › Sampling Controls (Top-K and Top-P)"
+      }
+    ],
+    "referenceAnswer": "Call ChatOptions.builder(), set topK(int) and topP(double) on the builder, then build the options. For example: topK(40) and topP(0.8) limits selection to the most likely 40 tokens and samples from tokens that cover about 80% of the probability mass.",
+    "sourceExcerpt": "Prompt Engineering Patterns › 1. Configuration › LLM Output Configuration › Sampling Controls (Top-K and Top-P)\n\nThese parameters give you fine-grained control over the token selection process during generation.\n\n* *Top-K*: Limits token selection to the K most likely next tokens. Higher values (e.g., 40-50) introduce more diversity.\n* *Top-P (nucleus sampling)*: Dynamically selects from the smallest set of tokens whose cumulative probability exceeds P. Values like 0.8-0.95 are common.\n\n[source,java]\n----\n.options(ChatOptions.builder()\n        .topK(40)      // Consider only the top 40 tokens\n        .topP(0.8)     // Sample from tokens that cover 80% of probability mass\n        .build())\n----\n\nThese sampling controls work in conjunction with temperature to shape response characteristics."
+  },
+  {
+    "id": "q09",
+    "question": "What default order does the ToolCallingAdvisor get registered with in the ChatClient advisor chain?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/chatclient.adoc",
+        "sectionPrefix": "Advisors › Tool Calling"
+      }
+    ],
+    "referenceAnswer": "It uses an order value of Ordered.HIGHEST_PRECEDENCE + 300 by default.",
+    "sourceExcerpt": "Chat Client API › Advisors › Tool Calling\n\nThe `ChatClient` always auto-registers a `ToolCallingAdvisor` in the advisor chain unless auto-registration is explicitly disabled (see below).\nThis ensures that tools injected dynamically at runtime by another advisor are handled correctly, even when no static tools are configured on the call.\n\n[source,java]\n----\nString response = ChatClient.builder(chatModel)\n    .build()\n    .prompt(\"What day is tomorrow?\")\n    .tools(new DateTimeTools())   // ToolCallingAdvisor is auto-registered\n    .call()\n    .content();\n----\n\nThe `ToolCallingAdvisor` is registered at `Ordered.HIGHEST_PRECEDENCE + 300` by default."
+  },
+  {
+    "id": "q10",
+    "question": "How do I access the assistant response and its metadata from a Generation object?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/chatmodel.adoc",
+        "sectionPrefix": "API Overview › Generation"
+      }
+    ],
+    "referenceAnswer": "The Generation class implements ModelResult<AssistantMessage> and contains the assistant message and metadata. Call getOutput() to get the AssistantMessage and getMetadata() to get the ChatGenerationMetadata.",
+    "sourceExcerpt": "Chat Model API › API Overview › Generation\n\nFinally, the https://github.com/spring-projects/spring-ai/blob/main/spring-ai-model/src/main/java/org/springframework/ai/chat/model/Generation.java[Generation] class extends from the `ModelResult` to represent the model output (assistant message) and related metadata:\n\n[source,java]\n----\npublic class Generation implements ModelResult<AssistantMessage> {\n\n\tprivate final AssistantMessage assistantMessage;\n\tprivate ChatGenerationMetadata chatGenerationMetadata;\n\n\t@Override\n\tpublic AssistantMessage getOutput() {...}\n\n\t@Override\n\tpublic ChatGenerationMetadata getMetadata() {...}\n\n    // other methods omitted\n}\n----"
+  },
+  {
+    "id": "q11",
+    "question": "Which Docker image names trigger ChromaConnectionDetails in the spring-ai Docker Compose integrations?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/docker-compose.adoc",
+        "sectionPrefix": "Service Connections"
+      }
+    ],
+    "referenceAnswer": "The ChromaConnectionDetails factory is matched when a container image is chromadb/chroma or ghcr.io/chroma-core/chroma.",
+    "sourceExcerpt": "Docker Compose › Service Connections\n\nThe following service connection factories are provided in the `spring-ai-spring-boot-docker-compose` module:\n\n[cols=\"|,|\"]\n|====\n| Connection Details\t | Matched on\n| `AwsOpenSearchConnectionDetails`\n| Containers named `localstack/localstack`\n\n| `ChromaConnectionDetails`\n| Containers named `chromadb/chroma`, `ghcr.io/chroma-core/chroma`\n\n| `MilvusServiceClientConnectionDetails`\n| Containers named `milvusdb/milvus`\n\n| `OllamaConnectionDetails`\n| Containers named `ollama/ollama`\n\n| `OpenSearchConnectionDetails`\n| Containers named `opensearchproject/opensearch`\n\n| `QdrantConnectionDetails`\n| Containers named `qdrant/qdrant`\n\n| `TypesenseConnectionDetails`\n| Containers named `typesense/typesense`\n\n| `WeaviateConnectionDetails`\n| Containers named `semitechnologies/weaviate`, `cr.weaviate.io/semitechnologies/weaviate`\n\n| `McpSseClientConnectionDetails`\n| Containers named `docker/mcp-gateway`\n|====\n\nMore service connections are provided by the spring boot module `spring-boot-docker-compose`. Refer to the https://docs.spring.io/spring-boot/reference/features/dev-services.html#features.dev-services.docker-compose[Docker Compose Support] documentation page for the full list."
+  },
+  {
+    "id": "q12",
+    "question": "Which classes represent the request and response for embedding models in Spring AI?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/embeddings.adoc",
+        "sectionPrefix": "API Overview"
+      }
+    ],
+    "referenceAnswer": "EmbeddingRequest and EmbeddingResponse act as the request and response types for embedding models; they extend the Spring AI types ModelRequest and ModelResponse.",
+    "sourceExcerpt": "Embeddings Model API › API Overview\n\nThe Embedding Model API is built on top of the generic https://github.com/spring-projects/spring-ai/tree/main/spring-ai-model/src/main/java/org/springframework/ai/model[Spring AI Model API], which is a part of the Spring AI library.\nAs such, the EmbeddingModel interface extends the `Model` interface, which provides a standard set of methods for interacting with AI models. The `EmbeddingRequest` and `EmbeddingResponse` classes extend from the `ModelRequest` and `ModelResponse` are used to encapsulate the input and output of the embedding models, respectively.\n\nThe Embedding API in turn is used by higher-level components to implement Embedding Models for specific embedding models, such as OpenAI, Titan, Ollie, and others.\n\nFollowing diagram illustrates the Embedding API and its relationship with the Spring AI Model API and the Embedding Models:\n\nimage:embeddings-api.jpg[title=Embeddings API,align=center,width=900]"
+  },
+  {
+    "id": "q13",
+    "question": "How do I configure Ollama to pull a model only if it isn't already available?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/embeddings/ollama-embeddings.adoc",
+        "sectionPrefix": "Auto-pulling Models"
+      },
+      {
+        "sourcePath": "api/chat/ollama-chat.adoc",
+        "sectionPrefix": "Auto-pulling Models"
+      }
+    ],
+    "referenceAnswer": "Set spring.ai.ollama.init.pull-model-strategy to when_missing (PullModelStrategy.WHEN_MISSING). With this setting the model will only be fetched when it is not present in your Ollama instance, although that may mean an older model version is used.",
+    "sourceExcerpt": "Ollama Embeddings › Auto-pulling Models\n\nSpring AI Ollama can automatically pull models when they are not available in your Ollama instance.\nThis feature is particularly useful for development and testing as well as for deploying your applications to new environments.\n\nTIP: You can also pull, by name, any of the thousands, free, link:https://huggingface.co/models?library=gguf&sort=trending[GGUF Hugging Face Models].\n\nThere are three strategies for pulling models:\n\n* `always` (defined in `PullModelStrategy.ALWAYS`): Always pull the model, even if it's already available. Useful to ensure you're using the latest version of the model.\n* `when_missing` (defined in `PullModelStrategy.WHEN_MISSING`): Only pull the model if it's not already available. This may result in using an older version of the model.\n* `never` (defined in `PullModelStrategy.NEVER`): Never pull the model automatically.\n\nCAUTION: Due to potential delays while downloading models, automatic pulling is not recommended for production environments. Instead, consider assessing and pre-downloading the necessary models in advance.\n\nAll models defined via configuration properties and default options can be automatically pulled at startup time.\nYou can configure the pull strategy, timeout, and maximum number of retries using configuration properties:\n\n[source,yaml]\n----\nspring:\n  ai:\n    ollama:\n      init:\n        pull-model-strategy: always\n        timeout: 60s\n        max-retries: 1\n----\n\nCAUTION: The application will not complete its initialization until all specified models are available in Ollama. Depending on the model size and internet connection speed, this may significantly slow down your application's startup time.\n\nYou can initialize additional models at startup, which is useful for models used dynamically at runtime:\n\n[source,yaml]\n----\nspring:\n  ai:\n    ollama:\n      init:\n        pull-model-strategy: always\n        embedding:\n          additional-models:\n            - mxbai-embed-large\n            - nomic-embed-text\n----\n\nIf you want to apply the pulling strategy only to specific types of models, you can exclude embedding models from the initialization task:\n\n[source,yaml]\n----\nspring:\n  ai:\n    ollama:\n      init:\n        pull-model-strategy: always\n        embedding:\n          include: false\n----\n\nThis configuration will apply the pulling strategy to all models except embedding models."
+  },
+  {
+    "id": "q14",
+    "question": "What dependency should I add to enable OpenAI embeddings auto-configuration in a Spring Boot project?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/embeddings/openai-embeddings.adoc",
+        "sectionPrefix": "Auto-configuration"
+      }
+    ],
+    "referenceAnswer": "Add the Spring AI OpenAI model starter dependency. For Maven include a dependency with groupId org.springframework.ai and artifactId spring-ai-starter-model-openai in your pom.xml; for Gradle add implementation 'org.springframework.ai:spring-ai-starter-model-openai' to your dependencies. You can also use the Spring AI BOM for dependency management and review the upgrade notes for recent starter artifact name changes.",
+    "sourceExcerpt": "OpenAI Embeddings › Auto-configuration\n\n[NOTE]\n====\nThere has been a significant change in the Spring AI auto-configuration, starter modules' artifact names.\nPlease refer to the https://docs.spring.io/spring-ai/reference/upgrade-notes.html[upgrade notes] for more information.\n====\n\nSpring AI provides Spring Boot auto-configuration for the OpenAI Embedding Model.\nTo enable it add the following dependency to your project's Maven `pom.xml` file:\n\n[source, xml]\n----\n<dependency>\n    <groupId>org.springframework.ai</groupId>\n    <artifactId>spring-ai-starter-model-openai</artifactId>\n</dependency>\n----\n\nor to your Gradle `build.gradle` build file.\n\n[source,groovy]\n----\ndependencies {\n    implementation 'org.springframework.ai:spring-ai-starter-model-openai'\n}\n----\n\nTIP: Refer to the xref:getting-started.adoc#dependency-management[Dependency Management] section to add the Spring AI BOM to your build file."
+  },
+  {
+    "id": "q15",
+    "question": "How does JsonReader behave when jsonKeysToUse contains several keys?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/etl-pipeline.adoc",
+        "sectionPrefix": "DocumentReaders › JSON › Notes"
+      }
+    ],
+    "referenceAnswer": "When several keys are provided in jsonKeysToUse, JsonReader combines the values from those fields into a single string for the document content.",
+    "sourceExcerpt": "ETL Pipeline › DocumentReaders › JSON › Notes\n\n* The `JsonReader` uses Jackson for JSON parsing.\n* It can handle large JSON files efficiently by using streaming for arrays.\n* If multiple keys are specified in `jsonKeysToUse`, the content will be a concatenation of the values for those keys.\n* The reader is flexible and can be adapted to various JSON structures by customizing the `jsonKeysToUse` and `JsonMetadataGenerator`."
+  },
+  {
+    "id": "q16",
+    "question": "How do I expose a Spring bean method as an MCP tool using annotations?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/mcp/mcp-annotations-overview.adoc",
+        "sectionPrefix": ""
+      },
+      {
+        "sourcePath": "api/mcp/mcp-annotations-server.adoc",
+        "sectionPrefix": "Server Annotations › @McpTool"
+      },
+      {
+        "sourcePath": "api/tools.adoc",
+        "sectionPrefix": "MCP Tools › Exposing Spring Tools as an MCP Server"
+      }
+    ],
+    "referenceAnswer": "Mark the class as a Spring bean (for example with @Component), annotate the method with @McpTool supplying a name and description, and annotate each parameter with @McpToolParam to provide parameter descriptions and required flags. Spring Boot auto-configuration will detect those annotated beans and register the declared tools with the MCP server and clients.",
+    "sourceExcerpt": "MCP Annotations\n\n[source,yaml]\n----\nspring:\n  ai:\n    mcp:\n      server:\n        annotation-scanner:\n          enabled: true  # Enable/disable annotation scanning\n----\n\nHere's a simple example of using MCP annotations to create a calculator tool:\n\n[source,java]\n----\n@Component\npublic class CalculatorTools {\n\n    @McpTool(name = \"add\", description = \"Add two numbers together\")\n    public int add(\n            @McpToolParam(description = \"First number\", required = true) int a,\n            @McpToolParam(description = \"Second number\", required = true) int b) {\n        return a + b;\n    }\n\n    @McpTool(name = \"multiply\", description = \"Multiply two numbers\")\n    public double multiply(\n            @McpToolParam(description = \"First number\", required = true) double x,\n            @McpToolParam(description = \"Second number\", required = true) double y) {\n        return x * y;\n    }\n}\n----\n\nAnd a simple client handler for logging:\n\n[source,java]\n----\n@Component\npublic class LoggingHandler {\n\n    @McpLogging(clients = \"my-server\")\n    public void handleLoggingMessage(LoggingMessageNotification notification) {\n        System.out.println(\"Received log: \" + notification.level() + \n                          \" - \" + notification.data());\n    }\n}\n----\n\nWith Spring Boot auto-configuration, these annotated beans are automatically detected and registered with the MCP server or client."
+  },
+  {
+    "id": "q17",
+    "question": "How do I limit an MCP client annotation to a specific client ID?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/mcp/mcp-client-boot-starter-docs.adoc",
+        "sectionPrefix": "MCP Client Annotations"
+      }
+    ],
+    "referenceAnswer": "Specify the clients attribute on the annotation with the client name; for example @McpLogging(clients = \"server1\") or @McpSampling(clients = \"server1\") to apply the annotation only to that client.",
+    "sourceExcerpt": "MCP Client Boot Starter › MCP Client Annotations\n\nThe annotations support both synchronous and asynchronous implementations, and can be configured for specific clients using the `clients` parameter:\n\n[source,java]\n----\n@McpLogging(clients = \"server1\")\npublic void handleServer1Logs(LoggingMessageNotification notification) {\n    // Handle logs from specific server\n    logToFile(\"server1.log\", notification);\n}\n\n@McpSampling(clients = \"server1\")\npublic Mono<CreateMessageResult> handleAsyncSampling(CreateMessageRequest request) {\n    return Mono.fromCallable(() -> {\n        String response = generateLLMResponse(request);\n        return CreateMessageResult.builder(Role.ASSISTANT, response, \"gpt-4\")\n            .build();\n    }).subscribeOn(Schedulers.boundedElastic());\n}\n----\n\nFor detailed information about all available annotations and their usage patterns, see the xref:api/mcp/mcp-annotations-client.adoc[MCP Client Annotations] documentation."
+  },
+  {
+    "id": "q18",
+    "question": "Which property value runs a stateless MCP server on WebFlux?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/mcp/mcp-overview.adoc",
+        "sectionPrefix": "Spring AI MCP Integration › link:mcp-server-boot-starter-docs.html[Server Starters] › WebFlux (Reactive)"
+      },
+      {
+        "sourcePath": "api/mcp/mcp-server-boot-starter-docs.adoc",
+        "sectionPrefix": "MCP Server Boot Starters › WebFlux (Reactive)"
+      }
+    ],
+    "referenceAnswer": "Set spring.ai.mcp.server.protocol=STATELESS. Also include the spring-ai-starter-mcp-server-webflux dependency for WebFlux MCP servers.",
+    "sourceExcerpt": "Model Context Protocol (MCP) › Spring AI MCP Integration › link:mcp-server-boot-starter-docs.html[Server Starters] › WebFlux (Reactive)\n\n|===\n|Server Type | Dependency | Property\n| xref:api/mcp/mcp-stdio-sse-server-boot-starter-docs.adoc#_sse_webflux_server[SSE WebFlux] | `spring-ai-starter-mcp-server-webflux` | `spring.ai.mcp.server.protocol=SSE` or empty\n| xref:api/mcp/mcp-streamable-http-server-boot-starter-docs.adoc#_streamable_http_webflux_server[Streamable-HTTP WebFlux] | `spring-ai-starter-mcp-server-webflux` | `spring.ai.mcp.server.protocol=STREAMABLE`\n| xref:api/mcp/mcp-stateless-server-boot-starter-docs.adoc#_stateless_webflux_server[Stateless Streamable-HTTP WebFlux] | `spring-ai-starter-mcp-server-webflux` | `spring.ai.mcp.server.protocol=STATELESS`\n|==="
+  },
+  {
+    "id": "q19",
+    "question": "Spring AI initializes my MCP clients at startup and that breaks user-based authentication. How do I prevent it?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/mcp/mcp-security.adoc",
+        "sectionPrefix": "MCP Client Security › Working Around Spring AI Autoconfiguration"
+      }
+    ],
+    "referenceAnswer": "Provide a ToolCallbackResolver bean that returns a StaticToolCallbackResolver backed by an empty list. Put that bean in a @Configuration class so Spring AI's @Tool autoconfiguration will be suppressed.",
+    "sourceExcerpt": "MCP Security › MCP Client Security › Working Around Spring AI Autoconfiguration\n\nSpring AI's autoconfiguration initializes MCP clients at startup, which can cause issues with user-based authentication. To avoid this:\n\nDisable Spring AI's `@Tool` autoconfiguration by publishing an empty `ToolCallbackResolver` bean:\n\n[source,java]\n----\n@Configuration\npublic class McpConfiguration {\n\n    @Bean\n    ToolCallbackResolver resolver() {\n        return new StaticToolCallbackResolver(List.of());\n    }\n}\n----"
+  },
+  {
+    "id": "q21",
+    "question": "How do I include an image when sending a UserMessage to a multimodal model with Spring AI?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/multimodality.adoc",
+        "sectionPrefix": "Spring AI Multimodality"
+      }
+    ],
+    "referenceAnswer": "Put your prompt text in the message content and attach a Media object to the UserMessage with the appropriate MimeType (for example MimeTypeUtils.IMAGE_PNG) and either a Resource or a URI pointing to the image. Media attachments apply only to messages sent by the user; assistant responses are returned as text.",
+    "sourceExcerpt": "Multimodality API › Spring AI Multimodality\n\nMultimodality refers to a model’s ability to simultaneously understand and process information from various sources, including text, images, audio, and other data formats.\n\nThe Spring AI Message API provides all necessary abstractions to support multimodal LLMs.\n\nimage::spring-ai-message-api.jpg[Spring AI Message API, width=800, align=\"center\"]\n\nThe UserMessage’s `content` field is used primarily for text inputs, while the optional `media` field allows adding one or more additional content of different modalities such as images, audio and video.\nThe `MimeType` specifies the modality type.\nDepending on the used LLMs, the `Media` data field can be either the raw media content as a `Resource` object or a `URI` to the content.\n\nNOTE: The media field is currently applicable only for user input messages (e.g., `UserMessage`). It does not hold significance for system messages. The `AssistantMessage`, which includes the LLM response, provides text content only. To generate non-text media outputs, you should utilize one of the dedicated, single-modality models.*\n\nFor example, we can take the following picture (`multimodal.test.png`) as an input and ask the LLM to explain what it sees.\n\nimage::multimodal.test.png[Multimodal Test Image, 200, 200, align=\"left\"]\n\nFor most of the multimodal LLMs, the Spring AI code would look something like this:\n\n[source,java]\n----\nvar imageResource = new ClassPathResource(\"/multimodal.test.png\");\n\nvar userMessage = UserMessage.builder()\n    .text(\"Explain what do you see in this picture?\") // content\n    .media(new Media(MimeTypeUtils.IMAGE_PNG, this.imageResource)) // media\n    .build();\n\nChatResponse response = chatModel.call(new Prompt(this.userMessage));\n----\n\nor with the fluent xref::api/chatclient.adoc[ChatClient] API:\n\n[source,java]\n----\nString response = ChatClient.create(chatModel).prompt()\n\t\t.user(u -> u.text(\"Explain what do you see on this picture?\")\n\t\t\t\t    .media(MimeTypeUtils.IMAGE_PNG, new ClassPathResource(\"/multimodal.test.png\")))\n\t\t.call()\n\t\t.content();\n----\n\nand produce a response like:"
+  },
+  {
+    "id": "q22",
+    "question": "How do I build a prompt from a templated system message plus a user message?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/prompt.adoc",
+        "sectionPrefix": "Example Usage"
+      }
+    ],
+    "referenceAnswer": "Create a SystemPromptTemplate with placeholders and call its createMessage method with a Map of values to produce the system Message. Then make a UserMessage for the user text, construct a Prompt from a list containing the user and system messages, and pass that Prompt to chatModel.call(prompt) to obtain the generative response.",
+    "sourceExcerpt": "Prompts › Example Usage\n\nA simple example taken from the https://github.com/Azure-Samples/spring-ai-azure-workshop/blob/main/2-README-prompt-templating.md[AI Workshop on PromptTemplates] is shown below.\n\n[source,java]\n----\nPromptTemplate promptTemplate = new PromptTemplate(\"Tell me a {adjective} joke about {topic}\");\n\nPrompt prompt = promptTemplate.create(Map.of(\"adjective\", adjective, \"topic\", topic));\n\nreturn chatModel.call(prompt).getResult();\n----\n\nAnother example taken from the https://github.com/Azure-Samples/spring-ai-azure-workshop/blob/main/3-README-prompt-roles.md[AI Workshop on Roles] is shown below.\n\n[source,java]\n----\nString userText = \"\"\"\n    Tell me about three famous pirates from the Golden Age of Piracy and why they did.\n    Write at least a sentence for each pirate.\n    \"\"\";\n\nMessage userMessage = new UserMessage(userText);\n\nString systemText = \"\"\"\n  You are a helpful AI assistant that helps people find information.\n  Your name is {name}\n  You should reply to the user's request with your name and also in the style of a {voice}.\n  \"\"\";\n\nSystemPromptTemplate systemPromptTemplate = new SystemPromptTemplate(systemText);\nMessage systemMessage = systemPromptTemplate.createMessage(Map.of(\"name\", name, \"voice\", voice));\n\nPrompt prompt = new Prompt(List.of(userMessage, systemMessage));\n\nList<Generation> response = chatModel.call(prompt).getResults();\n----\n\nThis shows how you can build up the `Prompt` instance by using the `SystemPromptTemplate` to create a `Message` with the system role passing in placeholder values.\nThe message with the role `user` is then combined with the message of the role `system` to form the prompt.\nThe prompt is then passed to the ChatModel to get a generative response."
+  },
+  {
+    "id": "q23",
+    "question": "How do I make .entity(...) validate the response against the schema and retry when it doesn't match?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/structured-output.adoc",
+        "sectionPrefix": "Reliability Switches: `EntityParamSpec`"
+      },
+      {
+        "sourcePath": "api/structured-output/validation.adoc",
+        "sectionPrefix": ""
+      }
+    ],
+    "referenceAnswer": "Provide a Consumer<EntityParamSpec> to .entity(...) and call validateSchema() on it. Spring AI will validate the returned content against the entity's schema, and if validation fails it appends the validation error to the prompt and retries the request, up to three attempts by default.",
+    "sourceExcerpt": "Structured Output › Reliability Switches: `EntityParamSpec`\n\nAll `.entity(...)` (and `.responseEntity(...)`) overloads accept an optional `Consumer<EntityParamSpec>` that enables two independent, composable behaviors.\n\n`validateSchema()` turns on a self-correcting retry loop: Spring AI validates the response against the entity's schema, and if validation fails, the specific error is appended to the prompt and the call is re-issued -- up to 3 attempts by default.\n\n[source,java]\n----\nActorsFilms films = chatClient.prompt()\n    .user(\"Generate the filmography for a random actor.\")\n    .call()\n    .entity(ActorsFilms.class, spec -> spec.validateSchema());\n----\n\nSee xref:api/structured-output/validation.adoc[Schema Validation & Self-Correction] for how the retry loop works and how to customize it."
+  },
+  {
+    "id": "q24",
+    "question": "How can I return a List<T> when calling useProviderStructuredOutput() against OpenAI?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/structured-output/native.adoc",
+        "sectionPrefix": "Known Limitations › OpenAI: No Top-Level Array Support"
+      }
+    ],
+    "referenceAnswer": "OpenAI's native structured output cannot return a bare JSON array, so requesting a List<T> via useProviderStructuredOutput() will fail. As alternatives, wrap the list in a container record and request that type with useProviderStructuredOutput(), or omit provider-native structured output and use the default prompt-based flow which allows top-level arrays.",
+    "sourceExcerpt": "Provider-Native Structured Output › Known Limitations › OpenAI: No Top-Level Array Support\n\nThe OpenAI Structured Outputs API does not accept a top-level JSON array as the response schema (see the https://community.openai.com/t/support-top-level-array-in-json-schema/896048[OpenAI community discussion]).\nRequesting a `List<T>` with native structured output enabled will result in an API error.\n\n[source,java]\n----\n// Does NOT work with OpenAI native structured output:\nList<ActorsFilms> films = chatClient.prompt()\n    .user(\"Generate filmographies for Tom Hanks and Bill Murray.\")\n    .call()\n    .entity(new ParameterizedTypeReference<List<ActorsFilms>>() {},\n            spec -> spec.useProviderStructuredOutput()); // fails with OpenAI\n----\n\nUse one of these alternatives instead:\n\n[source,java]\n----\n// Option 1: wrap the list in a container record\nrecord FilmographyList(List<ActorsFilms> films) {}\n\nFilmographyList result = chatClient.prompt()\n    .user(\"Generate filmographies for Tom Hanks and Bill Murray.\")\n    .call()\n    .entity(FilmographyList.class, spec -> spec.useProviderStructuredOutput());\nList<ActorsFilms> films = result.films();\n\n// Option 2: use the default prompt-based approach (no native output required)\nList<ActorsFilms> films = chatClient.prompt()\n    .user(\"Generate filmographies for Tom Hanks and Bill Murray.\")\n    .call()\n    .entity(new ParameterizedTypeReference<List<ActorsFilms>>() {});\n----\n\nThe default prompt-based flow has no such restriction -- top-level arrays work fine without `useProviderStructuredOutput()`."
+  },
+  {
+    "id": "q25",
+    "question": "How can I combine validateSchema() with useProviderStructuredOutput() when mapping a response to a Java entity?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/structured-output/validation.adoc",
+        "sectionPrefix": "Combining with Provider-Native Output"
+      }
+    ],
+    "referenceAnswer": "Call useProviderStructuredOutput() on the entity specification to let the provider emit native structured output, then chain validateSchema() so the client validates the received data and retries if it doesn't match the schema. For example: .entity(ActorsFilms.class, spec -> spec.useProviderStructuredOutput().validateSchema()).",
+    "sourceExcerpt": "Schema Validation & Self-Correction › Combining with Provider-Native Output\n\n`validateSchema()` is a _response-side_ safety net -- it catches bad output after the fact and retries.\nxref:api/structured-output/native.adoc[`useProviderStructuredOutput()`] is a complementary _request-side_ constraint.\nThe two compose naturally:\n\n[source,java]\n----\nActorsFilms films = chatClient.prompt()\n    .user(\"Generate the filmography for a random actor.\")\n    .call()\n    .entity(ActorsFilms.class, spec -> spec\n        .useProviderStructuredOutput()\n        .validateSchema());\n----\n\nThis is especially useful for provider edge cases where native enforcement is only partial -- for example, Ollama reasoning models that may emit a plain-text reasoning trace instead of JSON.\nSee xref:api/structured-output/native.adoc#_known_limitations[Known Limitations]."
+  },
+  {
+    "id": "q26",
+    "question": "How do I enable Spring AI to connect to a model or vector store running under Testcontainers in a Spring Boot project?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/testcontainers.adoc",
+        "sectionPrefix": ""
+      }
+    ],
+    "referenceAnswer": "Add the Spring Testcontainers support dependency org.springframework.ai:spring-ai-spring-boot-testcontainers to your project. For Maven include a dependency element with groupId org.springframework.ai and artifactId spring-ai-spring-boot-testcontainers, or in Gradle add implementation 'org.springframework.ai:spring-ai-spring-boot-testcontainers'. Also import the Spring AI BOM via your build's dependency-management as recommended.",
+    "sourceExcerpt": "Testcontainers\n\nSpring AI provides Spring Boot auto-configuration for establishing a connection to a model service\nor vector store running via Testcontainers. To enable it, add the following dependency\nto your project's Maven `pom.xml` file:\n\n[source,xml]\n----\n<dependency>\n   <groupId>org.springframework.ai</groupId>\n   <artifactId>spring-ai-spring-boot-testcontainers</artifactId>\n</dependency>\n----\n\nor to your Gradle `build.gradle` build file.\n\n[source,groovy]\n----\ndependencies {\n    implementation 'org.springframework.ai:spring-ai-spring-boot-testcontainers'\n}\n----\n\nTIP: Refer to the xref:getting-started.adoc#dependency-management[Dependency Management] section to add the Spring AI BOM to your build file."
+  },
+  {
+    "id": "q27",
+    "question": "How do I provide a tenant ID to a tool method so the tool can use it but the model never sees it?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/tools.adoc",
+        "sectionPrefix": "Tool Specification Reference › Tool Context"
+      }
+    ],
+    "referenceAnswer": "Call .toolContext(...) on the ChatClient with a map that includes the tenant ID and declare a ToolContext parameter in your tool method; Spring AI supplies that map straight into the tool when it is invoked and does not send those values to the model. If you set toolContext both as a default and at the call site, the maps are merged and the values provided at call time override the defaults.",
+    "sourceExcerpt": "Tool Calling › Tool Specification Reference › Tool Context\n\n`ToolContext` lets you pass non-model data (tenant IDs, user IDs, request scope) to tool methods. The data is **not** sent to the model — it's purely for the tool's internal use.\n\nimage::tools/tool-context.jpg[Tool Context, width=700, align=\"center\"]\n\nThe chat request carries the tool definitions plus the tool context, and Spring AI sends only the tool definitions to the model (1).\nThe model decides to call a tool and returns the tool call requests to Spring AI (2), which dispatches them to the matching tool (3).\nThe tool context is handed directly to the tool at invocation time (3\"), so it reaches the tool without ever passing through the model.\nThe tool returns its result to Spring AI (4), which sends that result back to the model (5), and the model's final answer is returned as the chat response (6).\n\nIn the example below, the `Map.of(\"tenantId\", \"acme\")` passed to `.toolContext()` is the tool context from step (1), and `getCustomerInfo` reads it through its `ToolContext` parameter at step (3\") — the `tenantId` reaches the tool without ever being exposed to the model.\n\n[source,java]\n----\nclass CustomerTools {\n\n    @Tool(description = \"Retrieve customer information\")\n    Customer getCustomerInfo(Long id, ToolContext toolContext) {\n        return customerRepository.findById(id, toolContext.getContext().get(\"tenantId\"));\n    }\n}\n\nString response = ChatClient.create(chatModel)\n        .prompt(\"Tell me more about the customer with ID 42\")\n        .tools(new CustomerTools())\n        .toolContext(Map.of(\"tenantId\", \"acme\"))\n        .call()\n        .content();\n----\n\nIf `toolContext` is set both as a default and at the call site, the two maps are merged; runtime values take precedence over defaults."
+  },
+  {
+    "id": "q28",
+    "question": "How can I provide tools to ChatModel for a single prompt so the model can request a tool call?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/tools/chatmodel-tool-calling.adoc",
+        "sectionPrefix": "Passing Tools to `ChatModel` › Per-Request Tools"
+      }
+    ],
+    "referenceAnswer": "Create an array of ToolCallback instances (e.g., via ToolCallbacks.from(yourTool)), set that array on a ToolCallingChatOptions built with the toolCallbacks(...) builder method, and pass those options when creating the Prompt. Then call chatModel.call(prompt); if the model chooses to invoke a tool the ChatResponse will include the call request, which you must execute yourself.",
+    "sourceExcerpt": "ChatModel Tool Calling › Passing Tools to `ChatModel` › Per-Request Tools\n\n[source,java]\n----\nChatModel chatModel = ...\nToolCallback[] tools = ToolCallbacks.from(new DateTimeTools());\n\nChatOptions chatOptions = ToolCallingChatOptions.builder()\n    .toolCallbacks(tools)\n    .build();\n\nPrompt prompt = new Prompt(\"What day is tomorrow?\", chatOptions);\nChatResponse response = chatModel.call(prompt);\n----\n\nThis sends the tool definitions to the model. If the model decides to call a tool, the response contains the call request; you execute it yourself (see xref:#driving-the-loop-manually[Driving the Loop Manually])."
+  },
+  {
+    "id": "q29",
+    "question": "Does ChatResponse.getUsage() include tokens from every model call when a ChatClient conversation triggers a tool call?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/usage-handling.adoc",
+        "sectionPrefix": "Cumulative Usage Across Multi-Step Flows"
+      }
+    ],
+    "referenceAnswer": "Yes. getUsage() returns the total tokens summed across all model invocations that occurred in the exchange (for example the original chat call plus any tool-invoked calls). The aggregate is produced by UsageCalculator and includes standard token counts as well as the unified cache read/write input token metrics.",
+    "sourceExcerpt": "Using Chat/Embedding Response Usage › Cumulative Usage Across Multi-Step Flows\n\nWhen a response is produced through a multi-step flow such as a tool-calling loop, `getUsage()` reports the *cumulative* token usage across every model call in that exchange, not just the last call.\nFor example, a `ChatClient` conversation that triggers one tool call performs at least two model calls, and the returned `getUsage()` reflects the sum of both.\n\n[source,java]\n----\nChatResponse response = chatClient.prompt(\"What is the weather in Paris?\")\n        .tools(new WeatherTools())\n        .call()\n        .chatResponse();\n\n// Cumulative across all model calls in the tool-calling loop\nUsage usage = response.getMetadata().getUsage();\nint totalTokens = usage.getTotalTokens();\n----\n\nThe cumulative total is computed via `org.springframework.ai.support.UsageCalculator`, which sums the standard token counts and the unified cache metrics (`getCacheReadInputTokens()` / `getCacheWriteInputTokens()`).\n\nWARNING: Provider-specific native usage objects cannot be merged across responses.\nAs a result, `getNativeUsage()` returns `null` once usage has been aggregated across more than one model call (for example after a tool-calling loop); it is preserved only for single-call responses.\nIf you need the provider's native usage object, read it from an individual `ChatModel` call rather than from a multi-step `ChatClient` exchange."
+  },
+  {
+    "id": "q30",
+    "question": "How do I run a filtered similarity search, for example only documents where country is US, through VectorStoreRetriever?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/vectordbs.adoc",
+        "sectionPrefix": "Retrieval Operations with VectorStoreRetriever › Example Usage"
+      }
+    ],
+    "referenceAnswer": "Build a SearchRequest with your query, set topK to the desired maximum (for example 5), and include a filterExpression like country == 'US'. Then call retriever.similaritySearch(request). Relying on the VectorStoreRetriever interface indicates the service only performs retrieval and will not modify the vector store.",
+    "sourceExcerpt": "Vector Databases › Retrieval Operations with VectorStoreRetriever › Example Usage\n\nYou can use `VectorStoreRetriever` directly when you only need to perform similarity searches:\n\n[source,java]\n----\n@Service\npublic class DocumentRetrievalService {\n\n    private final VectorStoreRetriever retriever;\n\n    public DocumentRetrievalService(VectorStoreRetriever retriever) {\n        this.retriever = retriever;\n    }\n\n    public List<Document> findSimilarDocuments(String query) {\n        return retriever.similaritySearch(query);\n    }\n\n    public List<Document> findSimilarDocumentsWithFilters(String query, String country) {\n        SearchRequest request = SearchRequest.builder()\n            .query(query)\n            .topK(5)\n            .filterExpression(\"country == '\" + country + \"'\")\n            .build();\n\n        return retriever.similaritySearch(request);\n    }\n}\n----\n\nIn this example, the service only depends on the `VectorStoreRetriever` interface, making it clear that it only performs retrieval operations and doesn't modify the vector store."
+  },
+  {
+    "id": "q31",
+    "question": "How do I obtain the underlying MilvusServiceClient from a MilvusVectorStore bean?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/vectordbs/milvus.adoc",
+        "sectionPrefix": ""
+      }
+    ],
+    "referenceAnswer": "Call getNativeClient() on the MilvusVectorStore to receive an Optional<MilvusServiceClient>. If the Optional is present, call get() to obtain the MilvusServiceClient and use it for Milvus-specific functionality not exposed by the VectorStore interface.",
+    "sourceExcerpt": "Milvus\n\nIf Docker complains about resources, then execute:\n\n[source,bash]\n----\ndocker system prune --all --force --volumes\n----\n\nThe Milvus Vector Store implementation provides access to the underlying native Milvus client (`MilvusServiceClient`) through the `getNativeClient()` method:\n\n[source,java]\n----\nMilvusVectorStore vectorStore = context.getBean(MilvusVectorStore.class);\nOptional<MilvusServiceClient> nativeClient = vectorStore.getNativeClient();\n\nif (nativeClient.isPresent()) {\n    MilvusServiceClient client = nativeClient.get();\n    // Use the native client for Milvus-specific operations\n}\n----\n\nThe native client gives you access to Milvus-specific features and operations that might not be exposed through the `VectorStore` interface."
+  },
+  {
+    "id": "q32",
+    "question": "What do I need to set up before using Neo4jVectorStore with Spring AI?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/vectordbs/neo4j.adoc",
+        "sectionPrefix": "Prerequisites"
+      }
+    ],
+    "referenceAnswer": "You must have a running Neo4j instance at version 5.15 or later; this can be provided via the official Docker image, Neo4j Desktop, Neo4j Aura, or a standalone Neo4j Server deployment. Additionally, if your embedding provider requires credentials, obtain an API key for the EmbeddingModel that will create the vectors stored by Neo4jVectorStore.",
+    "sourceExcerpt": "Neo4j › Prerequisites\n\n* A running Neo4j (5.15+) instance. The following options are available:\n** link:https://hub.docker.com/_/neo4j[Docker] image\n** link:https://neo4j.com/download/[Neo4j Desktop]\n** link:https://neo4j.com/cloud/aura-free/[Neo4j Aura]\n** link:https://neo4j.com/deployment-center/[Neo4j Server] instance\n* If required, an API key for the xref:api/embeddings.adoc#available-implementations[EmbeddingModel] to generate the embeddings stored by the `Neo4jVectorStore`."
+  },
+  {
+    "id": "q33",
+    "question": "Which index types can I choose for the PGvector vector store?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/vectordbs/pgvector.adoc",
+        "sectionPrefix": "Auto-Configuration › Configuration properties"
+      }
+    ],
+    "referenceAnswer": "Set the spring.ai.vectorstore.pgvector.index-type property to NONE, IVFFlat, or HNSW. NONE performs an exact search; IVFFlat groups vectors into lists and searches a subset for faster builds and lower memory use but with lower query performance; HNSW creates a multilayer graph with better query performance at the cost of slower builds and higher memory, and it can be created without data in the table. The default value is HNSW.",
+    "sourceExcerpt": "PGvector › Auto-Configuration › Configuration properties\n\nYou can use the following properties in your Spring Boot configuration to customize the PGVector vector store.\n\n[cols=\"2,5,1\",stripes=even]\n|===\n|Property| Description | Default value\n\n|`spring.ai.vectorstore.pgvector.index-type`|  Nearest neighbor search index type. Options are `NONE` - exact nearest neighbor search, `IVFFlat` - index divides vectors into lists, and then searches a subset of those lists that are closest to the query vector. It has faster build times and uses less memory than HNSW, but has lower query performance (in terms of speed-recall tradeoff). `HNSW` - creates a multilayer graph. It has slower build times and uses more memory than IVFFlat, but has better query performance (in terms of speed-recall tradeoff). There's no training step like IVFFlat, so the index can be created without any data in the table.| HNSW\n|`spring.ai.vectorstore.pgvector.distance-type`| Search distance type. Defaults to `COSINE_DISTANCE`. But if vectors are normalized to length 1, you can use `EUCLIDEAN_DISTANCE` or `NEGATIVE_INNER_PRODUCT` for best performance.| COSINE_DISTANCE\n|`spring.ai.vectorstore.pgvector.dimensions`| Embeddings dimension. If not specified explicitly the PgVectorStore will retrieve the dimensions form the provided `EmbeddingModel`. Dimensions are set to the embedding column the on table creation. If you change the dimensions your would have to re-create the vector_store table as well. | -\n|`spring.ai.vectorstore.pgvector.remove-existing-vector-store-table` | Deletes the existing `vector_store` table on start up.  | false\n|`spring.ai.vectorstore.pgvector.initialize-schema` | Whether to initialize the required schema | false\n|`spring.ai.vectorstore.pgvector.schema-name` | Vector store schema name | `public`\n|`spring.ai.vectorstore.pgvector.table-name` | Vector store table name | `vector_store`\n|`spring.ai.vectorstore.pgvector.schema-validation` | Enables schema and table name validation to ensure they are valid and existing objects. | false\n|`spring.ai.vectorstore.pgvector.max-document-batch-size` | Maximum number of documents to process in a single batch. | 10000\n\n|==="
+  },
+  {
+    "id": "q34",
+    "question": "How do I manually set up a Qdrant vector store in a Spring AI application?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/vectordbs/qdrant.adoc",
+        "sectionPrefix": "Manual Configuration"
+      }
+    ],
+    "referenceAnswer": "Add the org.springframework.ai:spring-ai-qdrant-store dependency, create a QdrantClient @Bean (for example by building a QdrantGrpcClient with host, port, TLS and API key and wrapping it in a QdrantClient), and then define a QdrantVectorStore @Bean using QdrantVectorStore.builder(qdrantClient, embeddingModel) where you can configure options such as collectionName, contentFieldName, initializeSchema and batchingStrategy. Also provide an EmbeddingModel @Bean (for example an OpenAiEmbeddingModel) to use with the vector store.",
+    "sourceExcerpt": "Qdrant › Manual Configuration\n\nInstead of using the Spring Boot auto-configuration, you can manually configure the Qdrant vector store. For this you need to add the `spring-ai-qdrant-store` to your project:\n\n[source,xml]\n----\n<dependency>\n    <groupId>org.springframework.ai</groupId>\n    <artifactId>spring-ai-qdrant-store</artifactId>\n</dependency>\n----\n\nor to your Gradle `build.gradle` build file.\n\n[source,groovy]\n----\ndependencies {\n    implementation 'org.springframework.ai:spring-ai-qdrant-store'\n}\n----\n\nTIP: Refer to the xref:getting-started.adoc#dependency-management[Dependency Management] section to add the Spring AI BOM to your build file.\n\nCreate a Qdrant client bean:\n\n[source,java]\n----\n@Bean\npublic QdrantClient qdrantClient() {\n    QdrantGrpcClient.Builder grpcClientBuilder =\n        QdrantGrpcClient.newBuilder(\n            \"<QDRANT_HOSTNAME>\",\n            <QDRANT_GRPC_PORT>,\n            <IS_TLS>);\n    grpcClientBuilder.withApiKey(\"<QDRANT_API_KEY>\");\n\n    return new QdrantClient(grpcClientBuilder.build());\n}\n----\n\nThen create the `QdrantVectorStore` bean using the builder pattern:\n\n[source,java]\n----\n@Bean\npublic VectorStore vectorStore(QdrantClient qdrantClient, EmbeddingModel embeddingModel) {\n    return QdrantVectorStore.builder(qdrantClient, embeddingModel)\n        .collectionName(\"custom-collection\")     // Optional: defaults to \"vector_store\"\n        .contentFieldName(\"page_content\")        // Optional: defaults to \"doc_content\"\n        .initializeSchema(true)                  // Optional: defaults to false\n        .batchingStrategy(new TokenCountBatchingStrategy()) // Optional: defaults to TokenCountBatchingStrategy\n        .build();\n}\n\n// This can be any EmbeddingModel implementation\n@Bean\npublic EmbeddingModel embeddingModel() {\n    return new OpenAiEmbeddingModel(OpenAiEmbeddingOptions.builder().apiKey(System.getenv(\"OPENAI_API_KEY\")).build());\n}\n----"
+  },
+  {
+    "id": "q35",
+    "question": "How should I choose M, EF_CONSTRUCTION, and EF_RUNTIME values when configuring HNSW for RedisVectorStore in Java?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/vectordbs/redis.adoc",
+        "sectionPrefix": "HNSW Algorithm Configuration"
+      }
+    ],
+    "referenceAnswer": "Typical recommendations are: M = 12–48 (larger M improves recall but increases memory use and index time); EF_CONSTRUCTION = 100–500 (higher values improve index quality at the cost of longer build time); EF_RUNTIME = 10–100 (higher values boost search accuracy but increase latency).",
+    "sourceExcerpt": "Redis › HNSW Algorithm Configuration\n\nThe Redis Vector Store uses the HNSW (Hierarchical Navigable Small World) algorithm by default for efficient approximate nearest neighbor search. You can tune the HNSW parameters for your specific use case:\n\n[source,java]\n----\nRedisVectorStore vectorStore = RedisVectorStore.builder(jedisClient, embeddingModel)\n    .vectorAlgorithm(Algorithm.HNSW)\n    .hnswM(32)                    // Maximum outgoing connections per node (default: 16)\n    .hnswEfConstruction(100)      // Connections during index building (default: 200)\n    .hnswEfRuntime(50)            // Connections during search (default: 10)\n    .build();\n----\n\nParameter guidelines:\n\n* **M**: Higher values improve recall but increase memory usage and index time. Typical values: 12-48.\n* **EF_CONSTRUCTION**: Higher values improve index quality but increase build time. Typical values: 100-500.\n* **EF_RUNTIME**: Higher values improve search accuracy but increase latency. Typical values: 10-100.\n\nFor smaller datasets or when exact results are required, use the FLAT algorithm instead:\n\n[source,java]\n----\nRedisVectorStore vectorStore = RedisVectorStore.builder(jedisClient, embeddingModel)\n    .vectorAlgorithm(Algorithm.FLAT)\n    .build();\n----"
+  },
+  {
+    "id": "q37",
+    "question": "How do embeddings let me measure semantic similarity between texts?",
+    "expectedSources": [
+      {
+        "sourcePath": "concepts.adoc",
+        "sectionPrefix": "Embeddings"
+      }
+    ],
+    "referenceAnswer": "They transform content into numerical vectors whose dimensionality encodes semantic information. Similarity is determined by measuring the distance between two vectors, so items with related meaning lie close together and can be used for semantic search, classification, and RAG.",
+    "sourceExcerpt": "AI Concepts › Embeddings\n\nEmbeddings are numerical representations of text, images, or videos that capture relationships between inputs.\n\nEmbeddings work by converting text, image, and video into arrays of floating point numbers, called vectors.\nThese vectors are designed to capture the meaning of the text, images, and videos.\nThe length of the embedding array is called the vector's dimensionality.\n\nBy calculating the numerical distance between the vector representations of two pieces of text, an application can determine the similarity between the objects used to generate the embedding vectors.\n\nimage::spring-ai-embeddings.jpg[Embeddings, width=900, align=\"center\"]\n\nAs a Java developer exploring AI, it's not necessary to comprehend the intricate mathematical theories or the specific implementations behind these vector representations.\nA basic understanding of their role and function within AI systems suffices, particularly when you're integrating AI functionalities into your applications.\n\nEmbeddings are particularly relevant in practical applications like the Retrieval Augmented Generation (RAG) pattern.\nThey enable the representation of data as points in a semantic space, which is akin to the 2-D space of Euclidean geometry, but in higher dimensions.\nThis means just like how points on a plane in Euclidean geometry can be close or far based on their coordinates, in a semantic space, the proximity of points reflects the similarity in meaning.\nSentences about similar topics are positioned closer in this multi-dimensional space, much like points lying close to each other on a graph.\nThis proximity aids in tasks like text classification, semantic search, and even product recommendations, as it allows the AI to discern and group related concepts based on their \"location\" in this expanded semantic landscape.\n\nYou can think of this semantic space as a vector."
+  },
+  {
+    "id": "q38",
+    "question": "What does the SelfRefineEvaluationAdvisor do if a model returns an unrealistic answer?",
+    "expectedSources": [
+      {
+        "sourcePath": "guides/llm-as-judge.adoc",
+        "sectionPrefix": "Complete Example"
+      },
+      {
+        "sourcePath": "guides/llm-as-judge.adoc",
+        "sectionPrefix": "The SelfRefineEvaluationAdvisor"
+      }
+    ],
+    "referenceAnswer": "It evaluates the response and, when the evaluation fails, supplies feedback and retries the call; in the example a first attempt with an impossible temperature was rejected with feedback and a subsequent attempt produced a realistic temperature and passed, yielding the final response.",
+    "sourceExcerpt": "LLM Response Evaluation with LLM-as-a-Judge › Complete Example\n\nThe `SelfRefineEvaluationAdvisor` (Order 0) evaluates response quality and retries with feedback if needed, followed by `MyLoggingAdvisor` (Order 2) which logs the final request/response for observability.\n\nWhen run, you would see output like this:\n\n[source,text]\n----\nREQUEST: [{\"role\":\"user\",\"content\":\"What is current weather in Paris?\"}]\n\n>>> Tool Call responseTemp: -255\nEvaluation failed on attempt 1, evaluation: The response contains unrealistic temperature data, feedback: The temperature of -255°C is physically impossible and indicates a data error.\n\n>>> Tool Call responseTemp: 15\nEvaluation passed on attempt 2, evaluation: Excellent response with realistic weather data\n\nRESPONSE: The current weather in Paris is sunny with a temperature of 15°C.\n----\n\nTIP: The complete runnable demo with configuration examples, including different model combinations and evaluation scenarios, is available in the link:https://github.com/spring-projects/spring-ai-examples/tree/main/advisors/evaluation-recursive-advisor-demo[evaluation-recursive-advisor-demo] project."
+  },
+  {
+    "id": "q39",
+    "question": "Which AI model providers currently have observability support for EmbeddingModel implementations?",
+    "expectedSources": [
+      {
+        "sourcePath": "observability/index.adoc",
+        "sectionPrefix": "EmbeddingModel"
+      }
+    ],
+    "referenceAnswer": "Observability is currently available only for EmbeddingModel implementations from Mistral AI, Ollama, and OpenAI. Additional providers are planned to be supported in a future release.",
+    "sourceExcerpt": "Observability › EmbeddingModel\n\nNOTE: Observability features are currently supported only for `EmbeddingModel` implementations from the following\nAI model providers: Mistral AI, Ollama, and OpenAI.\nAdditional AI model providers will be supported in a future release.\n\nThe `gen_ai.client.operation` observations are recorded on embedding model method calls. \nThey measure the time spent on method completion and propagate the related tracing information.\n\nIMPORTANT: The `gen_ai.client.token.usage` metrics measures number of input and output tokens used by a single model call.\n\n.Low Cardinality Keys\n[cols=\"a,a\", stripes=even]\n|===\n|Name | Description\n\n|`gen_ai.operation.name` | The name of the operation being performed.\n|`gen_ai.system` | The model provider as identified by the client instrumentation.\n|`gen_ai.request.model` | The name of the model a request is being made to.\n|`gen_ai.response.model` | The name of the model that generated the response.\n|===\n\n.High Cardinality Keys\n[cols=\"a,a\", stripes=even]\n|===\n|Name | Description\n\n|`gen_ai.request.embedding.dimensions` | The number of dimensions the resulting output embeddings have.\n|`gen_ai.usage.input_tokens` | The number of tokens used in the model input.\n|`gen_ai.usage.total_tokens` | The total number of tokens used in the model exchange.\n|===\n\nNOTE: For measuring user tokens, the previous table lists the values present in an observation trace.\nUse the metric name `gen_ai.client.token.usage` that is provided by the `EmbeddingModel`."
+  },
+  {
+    "id": "q40",
+    "question": "What helper methods should I call when implementing doSingleValue in a custom AbstractFilterExpressionConverter for JSON and Lucene stores?",
+    "expectedSources": [
+      {
+        "sourcePath": "upgrade-notes.adoc",
+        "sectionPrefix": "Upgrading to 2.0.0 › AbstractFilterExpressionConverter: doSingleValue is now abstract › Migration"
+      }
+    ],
+    "referenceAnswer": "Implement doSingleValue(Object value, StringBuilder context) and for JSON-style backends call emitJsonValue(value, context). For Lucene-style backends use emitLuceneString for string values and format numbers, booleans and dates according to your store's query syntax; note values are already normalized (for example ISO date strings converted to Date) and normalizeDateString is provided if you need the same normalization elsewhere.",
+    "sourceExcerpt": "Upgrade Notes › Upgrading to 2.0.0 › AbstractFilterExpressionConverter: doSingleValue is now abstract › Migration\n\nImplement `doSingleValue(Object value, StringBuilder context)` in your custom converter. You can use the provided static helper methods:\n\n* **JSON-based filters** (e.g. PostgreSQL JSONPath, Neo4j Cypher, Weaviate): use `emitJsonValue(Object value, StringBuilder context)` to serialize values with proper quoting and escaping.\n* **Lucene-based filters** (e.g. Elasticsearch, OpenSearch, GemFire): use `emitLuceneString(String value, StringBuilder context)` for string values, and handle other types (numbers, booleans, dates) according to your store's query syntax.\n* **Other formats**: implement your own logic and append the result to `context`.\n\nNOTE: The framework normalizes values (e.g. ISO date strings converted to `Date`) before invoking `doSingleValue`, so your implementation receives already-normalized values. The static helper `normalizeDateString(Object)` is available if you need the same normalization when building expressions outside of the standard flow."
+  },
+  {
+    "id": "h01",
+    "question": "What does spring.ai.chat.memory.repository.jdbc.initialize-schema do?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/chat-memory.adoc",
+        "sectionPrefix": "Memory Storage › JdbcChatMemoryRepository"
+      }
+    ],
+    "referenceAnswer": "It controls when the JDBC chat-memory schema is created: embedded (the default, only for embedded databases), always, or never.",
+    "sourceExcerpt": null
+  },
+  {
+    "id": "h02",
+    "question": "What is defaultSystem on ChatClient.Builder for?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/chatclient.adoc",
+        "sectionPrefix": "Using Defaults"
+      }
+    ],
+    "referenceAnswer": "It sets a default system message that every request made through that ChatClient uses; the text can also take parameters that are filled in per request.",
+    "sourceExcerpt": null
+  },
+  {
+    "id": "h03",
+    "question": "How do I allow more than three retries when the model's JSON fails schema validation?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/structured-output/validation.adoc",
+        "sectionPrefix": "Customizing the Advisor"
+      }
+    ],
+    "referenceAnswer": "Build your own StructuredOutputValidationAdvisor with a higher maxRepeatAttempts (for example 5) and register it on the ChatClient; the default is 3 attempts.",
+    "sourceExcerpt": null
+  },
+  {
+    "id": "h04",
+    "question": "How can I run a PGvector database for local development without installing PostgreSQL?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/vectordbs/pgvector.adoc",
+        "sectionPrefix": "Prerequisites"
+      },
+      {
+        "sourcePath": "api/vectordbs/pgvector.adoc",
+        "sectionPrefix": "Run Postgres & PGVector DB locally"
+      }
+    ],
+    "referenceAnswer": "Use Spring Boot's Docker Compose or Testcontainers dev services, or start the pgvector Docker image yourself as shown in the 'Run Postgres & PGVector DB locally' appendix.",
+    "sourceExcerpt": null
+  }
+]

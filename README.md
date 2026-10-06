@@ -24,6 +24,7 @@ multi-query, reranking) gets added only after an evaluation harness can measure 
 - [Database schema](#database-schema)
 - [The corpus](#the-corpus)
 - [Testing](#testing)
+- [Evaluation](#evaluation)
 - [Design decisions](#design-decisions)
 - [Known limitations](#known-limitations)
 - [Troubleshooting](#troubleshooting)
@@ -37,8 +38,8 @@ multi-query, reranking) gets added only after an evaluation harness can measure 
 | M0 | Project skeleton: Boot 4.1.1, Spring AI 2.0.1, Flyway-owned pgvector schema, Testcontainers harness | ✅ done |
 | M1 | Structure-aware chunking, idempotent ingestion, document API, corpus fetch script | ✅ done |
 | M2 | Naive vector-only baseline: retrieval, grounded answers with `[n]` citations, SSE streaming, browser UI | ✅ done |
-| M3 | Golden set (generated, then reviewed by a human) and an `EvalRunner` with retrieval metrics | next |
-| M4 | Keyword search (`tsvector`) plus reciprocal rank fusion: hybrid retrieval | planned |
+| M3 | Golden set (generated, then reviewed) and an `EvalRunner` with retrieval metrics | ✅ done |
+| M4 | Keyword search (`tsvector`) plus reciprocal rank fusion: hybrid retrieval | next |
 | M5 | Query rewriting and multi-query expansion, parallel retrieval | planned |
 | M6 | LLM reranker with a minimum score, so off-topic questions are refused | planned |
 | M7 | Generation evals (faithfulness, relevancy, citation validity), `/api/retrieve`, debug panel | planned |
@@ -451,6 +452,10 @@ variables or `--name=value`.
 | `spring.servlet.multipart.max-file-size` | `20MB` | Upload limit. |
 | `spring.mvc.async.request-timeout` | `5m` | Tomcat's 30-second default would cut off long streamed answers. |
 | `spring.threads.virtual.enabled` | `true` | Blocking JDBC and OpenAI calls run on virtual threads. |
+| `rag.eval.golden-set` | `eval/golden-set.json` | The reviewed golden set the eval scores against. |
+| `rag.eval.reports-dir` | `eval/reports` | Where eval reports are written (gitignored). |
+| `rag.eval.golden.size` / `.seed` | `40` / `42` | Questions to draft, and the sampling seed. |
+| `rag.eval.golden.overwrite` | `false` | Allow the generator to replace an existing draft. |
 
 Changing any `rag.chunking.*` value or the embedding model changes every fingerprint, so the next corpus sync re-ingests
 all pages. Nothing goes stale silently.
@@ -528,6 +533,29 @@ Integration tests (`*IT`) run against a real `pgvector/pgvector:pg17` container 
 - a broken corpus file reported in the UI while the rest of the sync completes.
 
 Retrieval *quality* is not unit-tested; that is the job of M3's evaluation harness.
+
+## Evaluation
+
+Retrieval quality is measured against a reviewed golden set ([`eval/README.md`](eval/README.md)). The current set was
+reviewed by Claude at the user's request rather than by a human:
+
+```bash
+./mvnw spring-boot:run -Dspring-boot.run.profiles=golden   # draft eval/golden-set.draft.json (LLM-written questions)
+# review the draft → save as eval/golden-set.json
+./mvnw spring-boot:run -Dspring-boot.run.profiles=eval     # report: eval/reports/<time>.md + .json
+```
+
+The eval reports hit@5, recall@5, MRR@10 and p50/p95 retrieval latency for each retrieval configuration. Golden
+labels name a page and a heading path, not chunk ids, so the set survives re-chunking.
+
+**Baseline (vector only, 41 questions, 2026-10-06):**
+
+| Config | hit@5 | recall@5 | MRR@10 | p50 ms | p95 ms |
+|---|---|---|---|---|---|
+| vector | 0.976 | 0.967 | 0.902 | 488 | 830 |
+
+The golden set was AI-reviewed and is near ceiling for vector search; see [`eval/README.md`](eval/README.md#baseline)
+for what that means for M4–M6.
 
 ## Design decisions
 
