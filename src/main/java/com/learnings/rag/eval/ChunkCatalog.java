@@ -8,7 +8,11 @@ import static com.learnings.rag.ingest.ChunkMetadata.SOURCE_PATH;
 import static com.learnings.rag.ingest.ChunkMetadata.TITLE;
 import static com.learnings.rag.ingest.ChunkMetadata.TOKEN_COUNT;
 
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -41,6 +45,12 @@ public class ChunkCatalog {
             WHERE v.metadata->>'%s' = :model
             """.formatted(SOURCE_ID, EMBEDDING_MODEL);
 
+    private static final String BREADCRUMBS = """
+            SELECT DISTINCT metadata->>'%s' AS source_path, metadata->>'%s' AS breadcrumb
+            FROM vector_store
+            WHERE metadata->>'%s' = :model
+            """.formatted(SOURCE_PATH, BREADCRUMB, EMBEDDING_MODEL);
+
     private final JdbcClient jdbc;
     private final String embeddingModel;
 
@@ -61,6 +71,18 @@ public class ChunkCatalog {
                         rs.getInt("token_count"),
                         rs.getString("content")))
                 .list();
+    }
+
+    /** For every page with chunks of the current model (corpus and uploads), the breadcrumbs of those chunks. */
+    public Map<String, Set<String>> breadcrumbsByPage() {
+        Map<String, Set<String>> pages = new HashMap<>();
+        jdbc.sql(BREADCRUMBS)
+                .param("model", embeddingModel)
+                .query(rs -> {
+                    pages.computeIfAbsent(rs.getString("source_path"), path -> new HashSet<>())
+                            .add(rs.getString("breadcrumb"));
+                });
+        return pages;
     }
 
     public IndexStats stats() {

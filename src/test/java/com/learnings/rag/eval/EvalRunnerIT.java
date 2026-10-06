@@ -20,6 +20,8 @@ import com.learnings.rag.RagIntegrationTest;
 import com.learnings.rag.config.RagProperties;
 import com.learnings.rag.eval.EvalReport.ItemResult;
 import com.learnings.rag.ingest.CorpusIngestor;
+import com.learnings.rag.ingest.DocumentIngestionService;
+import com.learnings.rag.ingest.SourceDocument.Origin;
 
 @RagIntegrationTest
 class EvalRunnerIT {
@@ -31,6 +33,9 @@ class EvalRunnerIT {
 
     @Autowired
     EvalRunner runner;
+
+    @Autowired
+    DocumentIngestionService ingestion;
 
     @Autowired
     RagProperties properties;
@@ -63,7 +68,9 @@ class EvalRunnerIT {
     @Test
     void scoresEveryQuestionAndSummarizesTheConfig() {
         GoldenItem found = item("q01", new ExpectedSource("pgvector.adoc", ""));
-        GoldenItem missed = item("q02", new ExpectedSource("chat-client.adoc", "No such section"));
+        // A real section, but the question shares no word with any fixture chunk, so nothing is retrieved.
+        GoldenItem missed = new GoldenItem("q02", "xylophone", List.of(new ExpectedSource("chat-client.adoc",
+                "Streaming responses")), null, null);
 
         EvalReport report = runner.run(goldenSet(found, missed), EvalConfig.all(properties));
 
@@ -93,13 +100,40 @@ class EvalRunnerIT {
     }
 
     @Test
-    void expectedSourcesThatAreNotIndexedFailTheRunInsteadOfScoringZero() {
-        GoldenSet typo = goldenSet(item("q01", new ExpectedSource("api/vectordbs/pgvectr.adoc", "")));
+    void expectedSourcesThatMatchNoIndexedChunkFailTheRunInsteadOfScoringZero() {
+        ingestion.ingest("empty.adoc", "empty", "= Empty\n", Origin.CORPUS); // a document row with 0 chunks
+        GoldenSet labels = goldenSet(
+                item("q01", new ExpectedSource("api/vectordbs/pgvectr.adoc", "")),
+                item("q02", new ExpectedSource("pgvector.adoc", "Configuration properties > HNSW index")),
+                item("q03", new ExpectedSource("pgvector.adoc", "Configuration properties ")),
+                item("q04", new ExpectedSource("empty.adoc", "")),
+                item("q05", new ExpectedSource("pgvector.adoc", "Configuration properties › HNSW index")));
 
-        assertThat(runner.unindexedSources(typo)).containsExactly("api/vectordbs/pgvectr.adoc");
-        assertThatThrownBy(() -> runner.run(typo, EvalConfig.all(properties)))
+        assertThat(runner.unmatchableSources(labels)).containsExactly(
+                "q01: api/vectordbs/pgvectr.adoc",
+                "q02: pgvector.adoc › Configuration properties > HNSW index",
+                "q03: pgvector.adoc › Configuration properties ",
+                "q04: empty.adoc");
+    }
+
+    @Test
+    void aMistypedSectionFailsTheRunInsteadOfScoringZero() {
+        GoldenSet asciiSeparator = goldenSet(item("q01",
+                new ExpectedSource("pgvector.adoc", "Configuration properties > HNSW index")));
+
+        assertThatThrownBy(() -> runner.run(asciiSeparator, EvalConfig.all(properties)))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("api/vectordbs/pgvectr.adoc");
+                .hasMessageContaining("q01: pgvector.adoc › Configuration properties > HNSW index");
+    }
+
+    @Test
+    void aPageWithoutChunksFailsTheRunInsteadOfScoringZero() {
+        ingestion.ingest("empty.adoc", "empty", "= Empty\n", Origin.CORPUS);
+
+        assertThatThrownBy(() -> runner.run(goldenSet(item("q01", new ExpectedSource("empty.adoc", ""))),
+                EvalConfig.all(properties)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("q01: empty.adoc");
     }
 
     @Test

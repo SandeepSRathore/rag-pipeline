@@ -46,7 +46,8 @@ Save the result as `eval/golden-set.json` and commit it. The eval rejects the fi
 - an empty question;
 - no `expectedSources`;
 - a source without `sectionPrefix` (for example because of a typo in the field name);
-- a `sourcePath` that isn't indexed.
+- an expected source that matches no indexed chunk: a page that isn't indexed or has no chunks, or a section that
+  doesn't exist, for example because `›` was typed as `>`.
 
 ## 3. Run the eval
 

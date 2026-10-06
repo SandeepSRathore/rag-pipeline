@@ -3,7 +3,9 @@ package com.learnings.rag.eval;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 import org.slf4j.Logger;
@@ -17,7 +19,6 @@ import com.learnings.rag.eval.EvalReport.ItemResult;
 import com.learnings.rag.eval.EvalReport.RunInfo;
 import com.learnings.rag.eval.RetrievalMetrics.RankedSource;
 import com.learnings.rag.ingest.ChunkMetadata;
-import com.learnings.rag.ingest.SourceDocumentRepository;
 import com.learnings.rag.retrieval.RetrievalPipeline;
 import com.learnings.rag.retrieval.RetrievalResult;
 
@@ -29,14 +30,11 @@ public class EvalRunner {
 
     private final RetrievalPipeline pipeline;
     private final ChunkCatalog catalog;
-    private final SourceDocumentRepository documents;
     private final RagProperties properties;
 
-    public EvalRunner(RetrievalPipeline pipeline, ChunkCatalog catalog, SourceDocumentRepository documents,
-            RagProperties properties) {
+    public EvalRunner(RetrievalPipeline pipeline, ChunkCatalog catalog, RagProperties properties) {
         this.pipeline = pipeline;
         this.catalog = catalog;
-        this.documents = documents;
         this.properties = properties;
     }
 
@@ -46,10 +44,11 @@ public class EvalRunner {
             throw new IllegalStateException("The index has no chunks for embedding model "
                     + properties.embeddingModel() + ". Run scripts/fetch-corpus.sh and POST /api/ingest/corpus first.");
         }
-        List<String> unindexed = unindexedSources(goldenSet);
-        if (!unindexed.isEmpty()) {
-            throw new IllegalStateException("Expected sources that are not in the index: " + unindexed
-                    + ". Fix the paths in " + goldenSet.path() + ", or ingest the corpus.");
+        List<String> unmatchable = unmatchableSources(goldenSet);
+        if (!unmatchable.isEmpty()) {
+            throw new IllegalStateException("Expected sources that match no indexed chunk (wrong page or section, "
+                    + "or a page without chunks): " + unmatchable + ". Fix them in " + goldenSet.path()
+                    + ", or ingest the corpus.");
         }
 
         Instant startedAt = Instant.now();
@@ -59,15 +58,25 @@ public class EvalRunner {
         return new EvalReport(startedAt, info, results);
     }
 
-    /** Expected source paths missing from the index: a renamed page or a typo would otherwise silently score 0. */
-    public List<String> unindexedSources(GoldenSet goldenSet) {
-        return goldenSet.items().stream()
-                .flatMap(item -> item.expectedSources().stream())
-                .map(ExpectedSource::sourcePath)
-                .distinct()
-                .filter(path -> documents.findBySourcePath(path).isEmpty())
-                .sorted()
-                .toList();
+    /**
+     * Expected sources that no chunk of the current embedding model can match, as {@code "id: path › section"}: a
+     * page that isn't indexed or has no chunks, or a renamed or mistyped section ({@code "Indexes > HNSW"}, a
+     * trailing space). Scoring them would report a label mistake as a retrieval miss.
+     */
+    public List<String> unmatchableSources(GoldenSet goldenSet) {
+        Map<String, Set<String>> breadcrumbs = catalog.breadcrumbsByPage();
+        List<String> unmatchable = new ArrayList<>();
+        for (GoldenItem item : goldenSet.items()) {
+            for (ExpectedSource source : item.expectedSources()) {
+                boolean matchesAChunk = breadcrumbs.getOrDefault(source.sourcePath(), Set.of()).stream()
+                        .anyMatch(breadcrumb -> source.matches(source.sourcePath(), breadcrumb));
+                if (!matchesAChunk) {
+                    unmatchable.add(item.id() + ": " + source.sourcePath()
+                            + (source.sectionPrefix().isEmpty() ? "" : " › " + source.sectionPrefix()));
+                }
+            }
+        }
+        return unmatchable;
     }
 
     private ConfigResult run(List<GoldenItem> items, EvalConfig config) {
