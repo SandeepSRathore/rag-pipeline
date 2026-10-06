@@ -76,7 +76,10 @@ class EvalRunnerIT {
 
         assertThat(report.run().goldenItems()).isEqualTo(2);
         assertThat(report.run().index().corpusDocuments()).isEqualTo(2);
-        assertThat(report.configs()).singleElement().satisfies(config -> {
+        assertThat(report.configs()).extracting(EvalReport.ConfigResult::name)
+                .containsExactly("vector", "keyword", "hybrid");
+        assertThat(report.configs()).allSatisfy(config -> assertThat(config.items()).hasSize(2));
+        assertThat(report.configs().getFirst()).satisfies(config -> {
             assertThat(config.name()).isEqualTo("vector");
             assertThat(config.items()).extracting(ItemResult::id).containsExactly("q01", "q02");
             assertThat(config.items().get(0).score().firstRelevantRank()).isEqualTo(1);
