@@ -38,8 +38,8 @@ multi-query, reranking) gets added only after an evaluation harness can measure 
 | M0 | Project skeleton: Boot 4.1.1, Spring AI 2.0.1, Flyway-owned pgvector schema, Testcontainers harness | ✅ done |
 | M1 | Structure-aware chunking, idempotent ingestion, document API, corpus fetch script | ✅ done |
 | M2 | Naive vector-only baseline: retrieval, grounded answers with `[n]` citations, SSE streaming, browser UI | ✅ done |
-| M3 | Golden set (generated, then reviewed by a human) and an `EvalRunner` with retrieval metrics | in progress |
-| M4 | Keyword search (`tsvector`) plus reciprocal rank fusion: hybrid retrieval | planned |
+| M3 | Golden set (generated, then reviewed) and an `EvalRunner` with retrieval metrics | ✅ done |
+| M4 | Keyword search (`tsvector`) plus reciprocal rank fusion: hybrid retrieval | next |
 | M5 | Query rewriting and multi-query expansion, parallel retrieval | planned |
 | M6 | LLM reranker with a minimum score, so off-topic questions are refused | planned |
 | M7 | Generation evals (faithfulness, relevancy, citation validity), `/api/retrieve`, debug panel | planned |
@@ -546,6 +546,15 @@ Retrieval quality is measured against a hand-reviewed golden set ([`eval/README.
 
 The eval reports hit@5, recall@5, MRR@10 and p50/p95 retrieval latency for each retrieval configuration. Golden
 labels name a page and a heading path, not chunk ids, so the set survives re-chunking.
+
+**Baseline (vector only, 41 questions, 2026-10-06):**
+
+| Config | hit@5 | recall@5 | MRR@10 | p50 ms | p95 ms |
+|---|---|---|---|---|---|
+| vector | 0.976 | 0.963 | 0.862 | 463 | 783 |
+
+The golden set was AI-reviewed and is near ceiling for vector search; see [`eval/README.md`](eval/README.md#baseline)
+for what that means for M4–M6.
 
 ## Design decisions
 
