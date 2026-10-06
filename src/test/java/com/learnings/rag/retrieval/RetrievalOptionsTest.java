@@ -13,7 +13,7 @@ class RetrievalOptionsTest {
 
     private static RagProperties properties(int topK, double threshold, RetrievalMode mode, int candidates) {
         return new RagProperties(Path.of("corpus"), "model", new RagProperties.Chunking(500, 50, 60),
-                new RagProperties.Retrieval(topK, threshold, mode, candidates));
+                new RagProperties.Retrieval(topK, threshold, mode, candidates, false, 0, "gpt-4.1-mini"));
     }
 
     @Test

@@ -22,7 +22,7 @@ class RetrievalPipelineTest {
     private final KeywordRetriever keywordRetriever = mock(KeywordRetriever.class);
     private final RetrievalPipeline pipeline = new RetrievalPipeline(vectorRetriever, keywordRetriever,
             new RagProperties(Path.of("corpus"), "model", new RagProperties.Chunking(500, 50, 60),
-                    new RagProperties.Retrieval(5, 0.0, RetrievalMode.HYBRID, 20)));
+                    new RagProperties.Retrieval(5, 0.0, RetrievalMode.HYBRID, 20, false, 0, "gpt-4.1-mini")));
 
     private static Document doc(String id) {
         return Document.builder().id(id).text("text " + id).score(0.5).build();
