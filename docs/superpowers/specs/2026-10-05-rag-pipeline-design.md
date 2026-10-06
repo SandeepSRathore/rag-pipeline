@@ -284,6 +284,34 @@ Run TDD inside each milestone (superpowers:test-driven-development). Pause at M3
     - Normalization 1 divides by 1 + log of the chunk's length.
     - The variant was chosen after seeing exploratory numbers on this same golden set, which risks overfitting to it.
     - The M4 comparison is re-run with the amendment 24 rule unchanged.
+28. **Utility ChatClient (from M5 planning).** `AiConfig.utilityChatClient` uses `rag.retrieval.utility-model`
+    (default `gpt-4.1-mini`) at temperature 0, with no advisors.
+    - Probe: `gpt-5-mini` rejects `temperature: 0`.
+    - The answer client keeps `OPENAI_CHAT_MODEL`.
+29. **Rewriting uses Spring AI's `RewriteQueryTransformer`. Expansion uses our own `LlmQueryExpander implements
+    QueryExpander`**, with structured output.
+    - Why not Spring AI's `MultiQueryExpander`: it splits on newlines and silently returns only the original when the
+      count differs.
+    - The original question always comes first. Blank, duplicate and original-copy variants are dropped, and at most
+      N are kept.
+    - Failures fall back to the original question, and the eval reports the queries actually searched.
+30. **Multi-query flow:**
+    1. rewrite (optional);
+    2. expand (optional);
+    3. search every query in parallel in the configured mode, to depth `candidates`;
+    4. RRF across the queries (k = 60), keeping the top K.
+
+    Stages are `rewrite`, `expand`, `q{i}:…` and `join`. A single query keeps M4's stage names.
+31. **Golden set v3** adds 10 conversational items (`c01`–`c10`).
+    - They are chatty rephrasings of verified items, with copied labels, written by Claude.
+    - That makes 63 items.
+32. **Pre-registered M5 default rule.** Each candidate is compared with `hybrid` in the same run.
+    - Candidates: `hybrid+rewrite`, `hybrid+multiquery`, `hybrid+rewrite+multiquery`.
+    - A candidate qualifies only if both hold:
+      - its MRR@10 is at least hybrid's + 1/N;
+      - its hit@5 is at least hybrid's − 1/N, where N = 63.
+    - If several qualify, the highest MRR@10 wins; on a tie, the one with fewer LLM calls wins.
+    - Otherwise rewriting and expansion stay off. Latency is reported, not capped.
 
 **Scope decision (2026-10-05):** this stays a learning project. Production hardening (auth, document ACLs, rate limits,
 async ingestion jobs, CI eval gates, deployment) is intentionally out of scope.
