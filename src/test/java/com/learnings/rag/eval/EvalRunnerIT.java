@@ -77,7 +77,8 @@ class EvalRunnerIT {
         assertThat(report.run().goldenItems()).isEqualTo(2);
         assertThat(report.run().index().corpusDocuments()).isEqualTo(2);
         assertThat(report.configs()).extracting(EvalReport.ConfigResult::name)
-                .containsExactly("vector", "keyword", "hybrid");
+                .containsExactly("vector", "keyword", "hybrid", "hybrid+rewrite", "hybrid+multiquery",
+                        "hybrid+rewrite+multiquery");
         assertThat(report.configs()).allSatisfy(config -> assertThat(config.items()).hasSize(2));
         assertThat(report.configs().getFirst()).satisfies(config -> {
             assertThat(config.name()).isEqualTo("vector");
@@ -147,5 +148,19 @@ class EvalRunnerIT {
                 EvalConfig.all(properties)))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("POST /api/ingest/corpus");
+    }
+
+    @Test
+    void itemsRecordTheQueriesThatWereSearched() {
+        EvalReport report = runner.run(goldenSet(item("q01", new ExpectedSource("pgvector.adoc", ""))),
+                EvalConfig.all(properties));
+
+        assertThat(report.configs()).filteredOn(config -> config.name().equals("hybrid"))
+                .singleElement().satisfies(config -> assertThat(config.items().getFirst().queries())
+                        .containsExactly(HNSW_QUESTION));
+        // The stub chat model answers "Stub answer [1].": rewriting searches that text, and expansion falls back to it.
+        assertThat(report.configs()).filteredOn(config -> config.name().equals("hybrid+rewrite+multiquery"))
+                .singleElement().satisfies(config -> assertThat(config.items().getFirst().queries())
+                        .containsExactly("Stub answer [1]."));
     }
 }
