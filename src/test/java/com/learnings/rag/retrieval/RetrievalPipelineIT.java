@@ -66,7 +66,8 @@ class RetrievalPipelineIT {
 
     @Test
     void ranksThePgvectorChunkFirstForAnIndexQuestion() {
-        RetrievalResult result = pipeline.retrieve("Which index type is HNSW and how does it build its graph?");
+        RetrievalResult result = pipeline.retrieve("Which index type is HNSW and how does it build its graph?",
+                RetrievalOptions.from(properties).withMode(RetrievalMode.VECTOR));
 
         assertThat(result.documents()).isNotEmpty().hasSizeLessThanOrEqualTo(5);
         assertThat(result.documents().getFirst().getMetadata()).containsEntry(ChunkMetadata.SOURCE_PATH, "pgvector.adoc");
