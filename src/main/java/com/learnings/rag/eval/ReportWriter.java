@@ -17,6 +17,7 @@ import com.learnings.rag.config.RagProperties;
 import com.learnings.rag.eval.EvalReport.ConfigResult;
 import com.learnings.rag.eval.EvalReport.ItemResult;
 import com.learnings.rag.eval.EvalReport.RunInfo;
+import com.learnings.rag.eval.EvalReport.TagSummary;
 
 import tools.jackson.databind.SerializationFeature;
 import tools.jackson.databind.json.JsonMapper;
@@ -79,6 +80,21 @@ public class ReportWriter {
                     .append(" | ").append(decimal(summary.mrrAt10()))
                     .append(" | ").append(summary.p50Millis())
                     .append(" | ").append(summary.p95Millis()).append(" |\n");
+        }
+
+        if (report.configs().stream().anyMatch(config -> !config.byTag().isEmpty())) {
+            md.append("\n## By tag\n\n| Config | Tag | Items | hit@5 | recall@5 | MRR@10 |\n|---|---|---|---|---|---|\n");
+            for (ConfigResult config : report.configs()) {
+                for (TagSummary tag : config.byTag()) {
+                    RetrievalMetrics.Summary summary = tag.summary();
+                    md.append("| ").append(config.name())
+                            .append(" | ").append(tag.tag())
+                            .append(" | ").append(summary.items())
+                            .append(" | ").append(decimal(summary.hitAt5()))
+                            .append(" | ").append(decimal(summary.recallAt5()))
+                            .append(" | ").append(decimal(summary.mrrAt10())).append(" |\n");
+                }
+            }
         }
 
         for (ConfigResult config : report.configs()) {
