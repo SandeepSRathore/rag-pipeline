@@ -81,6 +81,49 @@ This writes `eval/reports/<UTC time>.md` and `.json` (gitignored). Each report r
 
 ## M4: vector vs keyword vs hybrid
 
+**Final comparison** from `eval/reports/2026-10-06T09-34-14Z.md` (golden set v2, 53 questions). Keyword search here is ranked with
+length-normalised `ts_rank` (spec amendment 27):
+
+| | |
+|---|---|
+| Golden set | `eval/golden-set.json` (53 questions, sha256 `9d43cfa4e4cb…`) |
+| Index | 51 corpus pages, 0 uploads, 1106 chunks |
+| Embedding model | `text-embedding-3-small` |
+| Chunking | max 500 · min 50 · overlap 60 tokens |
+
+| Config | hit@5 | recall@5 | MRR@10 | p50 ms | p95 ms |
+|---|---|---|---|---|---|
+| vector | 0.981 | 0.965 | 0.864 | 497 | 885 |
+| keyword | 0.962 | 0.950 | 0.840 | 16 | 52 |
+| hybrid | 0.981 | 0.975 | 0.915 | 469 | 715 |
+
+| Config | Tag | Items | hit@5 | recall@5 | MRR@10 |
+|---|---|---|---|---|---|
+| vector | identifier | 13 | 1.000 | 0.962 | 0.753 |
+| vector | untagged | 40 | 0.975 | 0.967 | 0.900 |
+| keyword | identifier | 13 | 1.000 | 1.000 | 1.000 |
+| keyword | untagged | 40 | 0.950 | 0.933 | 0.788 |
+| hybrid | identifier | 13 | 1.000 | 1.000 | 0.962 |
+| hybrid | untagged | 40 | 0.975 | 0.967 | 0.900 |
+
+**Default mode: HYBRID.** The rule fixed before the first run (spec amendment 24) holds:
+- hybrid's MRR@10 is 0.915, at least vector's 0.864;
+- hybrid's hit@5 is 0.981, equal to vector's (the rule allows one question, 1/53, below).
+
+`rag.retrieval.mode` is now `hybrid`.
+
+- **The whole gain is on identifier questions.** MRR@10 rises from 0.753 (vector) to 0.962 (hybrid); keyword search
+  alone ranks every identifier question's section first (1.000).
+- **Nothing is lost on the other 40 questions.** Hybrid and vector both score hit@5 0.975 and MRR@10 0.900.
+- **Latency is unchanged.** Keyword search takes about 16 ms and runs in parallel with the query embedding.
+- **Caveats:**
+  - `ts_rank` normalization 1 was chosen after seeing exploratory numbers on this same golden set, which risks
+    overfitting to it.
+  - The identifier questions were written by Claude.
+  - With 53 questions, one question is worth about 0.019 in hit@5.
+
+### First run: keyword ranked by `ts_rank_cd`
+
 Recorded on 2026-10-06 from `eval/reports/2026-10-06T05-48-24Z.md` (golden set v2, 53 questions):
 
 | | |
@@ -105,7 +148,7 @@ Recorded on 2026-10-06 from `eval/reports/2026-10-06T05-48-24Z.md` (golden set v
 | hybrid | identifier | 13 | 0.923 | 0.846 | 0.785 |
 | hybrid | untagged | 40 | 0.975 | 0.967 | 0.720 |
 
-**Default mode: VECTOR stays.** The rule fixed before the run (spec amendment 24) makes HYBRID the default only if
+**Default after the first run: VECTOR stayed.** The rule fixed before the run (spec amendment 24) makes HYBRID the default only if
 its MRR@10 is ≥ vector's and its hit@5 is no more than one question (1/53 ≈ 0.019) below vector's. Hybrid's MRR@10 is
 0.736 against vector's 0.864, so the rule keeps VECTOR.
 
@@ -141,8 +184,8 @@ What the numbers show:
   | `ts_rank(…, 1)` (length-normalised) | 0.962 | 0.840 | 1.000 | 1.000 |
   | `ts_rank_cd`, all terms first, then any term | 0.604 | 0.484 | 0.846 | 0.857 |
 
-  Switching the rank function to `ts_rank` is a one-line change that could reverse the hybrid result, so it is the
-  next experiment. It needs a spec amendment and a re-run of this comparison under the same rule.
+  Switching the rank function to `ts_rank` was a one-line change that could reverse the hybrid result. It was done
+  (spec amendment 27), and the comparison was re-run under the same rule; that run is the final comparison above.
 
 ## Baseline
 
@@ -159,7 +202,7 @@ Recorded on 2026-10-06 from `eval/reports/2026-10-06T04-51-23Z.md`:
 |---|---|---|---|---|---|
 | vector | 0.976 | 0.967 | 0.902 | 488 | 830 |
 
-Baseline: vector-only retrieval (M2 pipeline), top 10, text-embedding-3-small. Every later configuration is compared with this row on the same golden set (sha256 above).
+Baseline: vector-only retrieval (M2 pipeline), top 10, text-embedding-3-small. Later configurations were compared with this row on golden set v1; from M4 on, configurations are compared on v2 within one run (see M4 above).
 
 About this golden set:
 

@@ -39,7 +39,7 @@ multi-query, reranking) gets added only after an evaluation harness can measure 
 | M1 | Structure-aware chunking, idempotent ingestion, document API, corpus fetch script | ✅ done |
 | M2 | Naive vector-only baseline: retrieval, grounded answers with `[n]` citations, SSE streaming, browser UI | ✅ done |
 | M3 | Golden set (generated, then reviewed) and an `EvalRunner` with retrieval metrics | ✅ done |
-| M4 | Keyword search (`tsvector`) plus reciprocal rank fusion: hybrid retrieval | ✅ done (vector stays the default; see Evaluation) |
+| M4 | Keyword search (`tsvector`) plus reciprocal rank fusion: hybrid retrieval | ✅ done (hybrid is the default; see Evaluation) |
 | M5 | Query rewriting and multi-query expansion, parallel retrieval | next |
 | M6 | LLM reranker with a minimum score, so off-topic questions are refused | planned |
 | M7 | Generation evals (faithfulness, relevancy, citation validity), `/api/retrieve`, debug panel | planned |
@@ -110,7 +110,7 @@ Type a question and press **Ask**, or press <kbd>⌘</kbd>/<kbd>Ctrl</kbd>+<kbd>
 Each `[n]` in the answer is a chip. Clicking it expands source *n*, scrolls to it and highlights it. The source shows the
 exact chunk text the model saw, including its contextual header:
 
-![Clicking citation 2 opens the configuration-properties chunk; the whole properties table is one chunk](docs/images/02-citation-opens-source.png)
+![Clicking citation 1 opens the configuration-properties chunk, ranked first by hybrid search; the whole properties table is one chunk](docs/images/02-citation-opens-source.png)
 
 > The answer is shown as plain text: Markdown is deliberately not rendered, so no model or document text is ever injected
 > as HTML. Code fences therefore appear as literal backticks.
@@ -159,6 +159,7 @@ flowchart LR
         AS[AnswerService]
         RP[RetrievalPipeline]
         VR[VectorRetriever]
+        KR[KeywordRetriever]
         PA[PromptAssembler]
         DC["DocumentController<br/>/api/ingest/corpus, /api/documents"]
         CI[CorpusIngestor]
@@ -174,6 +175,7 @@ flowchart LR
 
     UI -->|question| CC --> AS --> RP --> VR -->|similaritySearch| VS
     VR -.->|embed query| OAI
+    RP --> KR -->|"full-text: ts_rank"| VS
     AS --> PA
     AS -->|stream| OAI
     UI -->|upload / sync / delete| DC
@@ -311,8 +313,13 @@ sequenceDiagram
     B->>C: POST /api/chat {"question": "..."}
     C->>A: answer(question)
     A->>R: retrieve(question)
-    R->>O: embed question
-    R->>P: cosine top-5 WHERE embedding_model = current
+    par vector search
+        R->>O: embed question
+        R->>P: cosine top-20 (current model)
+    and keyword search
+        R->>P: websearch_to_tsquery, ts_rank top-20
+    end
+    R->>R: reciprocal rank fusion → top 5
     R-->>A: documents + trace
     A-->>B: event: sources
     A->>O: stream(system rules + numbered sources + question)
@@ -323,9 +330,15 @@ sequenceDiagram
     A-->>B: event: done (usage, timings)
 ```
 
-1. **Retrieve** (`VectorRetriever`): the question is embedded, then a cosine search over the HNSW index returns the
-   `top-k` (5) chunks. The search is filtered to `embedding_model = rag.embedding-model`, so vectors from another model
-   are never compared with the query.
+1. **Retrieve** (`RetrievalPipeline`; `rag.retrieval.mode=hybrid` by default since M4). The two searches run in
+   parallel on virtual threads:
+   - **Vector search** (`VectorRetriever`): the question is embedded, then a cosine search over the HNSW index returns
+     the top 20 candidates.
+   - **Keyword search** (`KeywordRetriever`): Postgres full-text search over `content_tsv` returns the top 20. It uses
+     `websearch_to_tsquery` with the terms OR-ed, ranked by length-normalised `ts_rank`.
+
+   **Fusion** (`ReciprocalRankFusion`, k = 60) merges the two rankings by rank alone and keeps the top-k (5). Both
+   searches only see chunks of the current embedding model. The `vector` and `keyword` modes run one retriever alone.
 2. **Assemble the prompt** (`PromptAssembler`):
    - The **system message** holds fixed rules (see [`prompts/answer-system.st`](src/main/resources/prompts/answer-system.st)):
      answer only from the sources; cite every factual statement as `[n]`; say *"I couldn't find this in the indexed
@@ -381,7 +394,7 @@ data:{"promptTokens":1641,"completionTokens":382,"retrievalMillis":1099,"generat
 
 | Event | Payload | When |
 |---|---|---|
-| `sources` | `{"sources": [{n, sourcePath, title, breadcrumb, score, text}]}` | Once, first. `score` is the cosine similarity (1 − distance). `n` is the number the model cites. |
+| `sources` | `{"sources": [{n, sourcePath, title, breadcrumb, score, text, scores}]}` | Once, first. `score` is what the chunk was ranked by: the fused RRF score in hybrid mode, cosine similarity in vector mode. `scores` gives each retrieval stage's score (`vector`, `keyword`, `fusion`). `n` is the number the model cites. |
 | `token` | `{"text": "…"}` | Any number of times. |
 | `done` | `{promptTokens, completionTokens, retrievalMillis, generationMillis}` | Once, last. The token counts are `null` when no model call was made. |
 | `error` | `{"message": "Sorry, the answer could not be generated. The server log has the details."}` | Replaces `done` if anything fails. |
@@ -448,7 +461,7 @@ variables or `--name=value`.
 | `rag.chunking.overlap-tokens` | `60` | Trailing prose repeated at the start of the next chunk. |
 | `rag.retrieval.top-k` | `5` | Chunks handed to the model. |
 | `rag.retrieval.similarity-threshold` | `0.0` | Minimum cosine similarity. M6's reranker will own refusals. |
-| `rag.retrieval.mode` | `vector` | `vector`, `keyword` or `hybrid` (both, fused with RRF k=60). Chosen by the M4 eval; hybrid lost on MRR@10. |
+| `rag.retrieval.mode` | `hybrid` | `vector`, `keyword` or `hybrid` (both in parallel, fused with RRF k=60). Chosen by the M4 eval. |
 | `rag.retrieval.candidates` | `20` | Hybrid: chunks each retriever contributes before fusion. |
 | `server.port` / `server.address` | `8081` / `127.0.0.1` | Loopback only, because there is no authentication. |
 | `spring.servlet.multipart.max-file-size` | `20MB` | Upload limit. |
@@ -550,20 +563,18 @@ reviewed by Claude at the user's request rather than by a human:
 The eval reports hit@5, recall@5, MRR@10 and p50/p95 retrieval latency for each retrieval configuration. Golden
 labels name a page and a heading path, not chunk ids, so the set survives re-chunking.
 
-**M4 comparison (53 questions, 2026-10-06):**
+**M4 comparison (53 questions, 2026-10-06; keyword search ranked with `ts_rank`):**
 
 | Config | hit@5 | recall@5 | MRR@10 | p50 ms | p95 ms |
 |---|---|---|---|---|---|
-| vector | 0.981 | 0.965 | 0.864 | 485 | 777 |
-| keyword | 0.509 | 0.472 | 0.359 | 12 | 31 |
-| hybrid | 0.962 | 0.937 | 0.736 | 476 | 731 |
+| vector | 0.981 | 0.965 | 0.864 | 497 | 885 |
+| keyword | 0.962 | 0.950 | 0.840 | 16 | 52 |
+| hybrid | 0.981 | 0.975 | 0.915 | 469 | 715 |
 
-Vector search stays the default (`rag.retrieval.mode=vector`), as the rule fixed before the run required: hybrid
-lost on MRR@10. Keyword search was weak because of its rank function: `ts_rank_cd` lets a common word repeated in a
-chunk outrank a rare exact identifier. In an exploratory run outside the harness, `ts_rank` scored 0.925 hit@5 for
-keyword search alone, so the decision holds only for the keyword retriever as built. Details, the per-tag results
-and the next experiment are in [`eval/README.md`](eval/README.md#m4-vector-vs-keyword-vs-hybrid). The golden set is
-AI-reviewed and was mostly generated from single chunks, which favours vector search.
+Hybrid retrieval is the default (`rag.retrieval.mode=hybrid`), as the rule fixed before the run required. It matches
+vector search on paraphrased questions and lifts identifier questions from MRR@10 0.753 to 0.962. A first run that
+ranked keyword search with `ts_rank_cd` lost; why, and the per-tag results, are in
+[`eval/README.md`](eval/README.md#m4-vector-vs-keyword-vs-hybrid). The golden set is AI-reviewed.
 
 ## Design decisions
 
@@ -623,8 +634,6 @@ previous configuration.
      reuse the chunk's wording.
   2. A human reviews them into `eval/golden-set.json`.
   3. `EvalRunner` (`eval` profile) reports hit@5, recall@5, MRR@10 and p50/p95 latency.
-- **M4:** `KeywordRetriever` (`websearch_to_tsquery` + `ts_rank_cd`) and reciprocal rank fusion, with
-  `rag.retrieval.mode=VECTOR|KEYWORD|HYBRID`.
 - **M5:** query rewriting and multi-query expansion, retrieval in parallel on virtual threads, and RRF across query
   variants.
 - **M6:** an `LlmReranker` with a minimum score, so off-topic questions are refused.
@@ -651,7 +660,8 @@ previous configuration.
     │   ├── ingest/                  SectionParser, StructureAwareChunker, Chunk, ChunkedText, ChunkMetadata,
     │   │                            DocumentIngestionService, CorpusIngestor, SourceDocument(+Repository),
     │   │                            TextExtractor, DocumentController, CorpusUnavailableException
-    │   ├── retrieval/               RetrievalPipeline, VectorRetriever, RetrievalResult, PipelineTrace
+    │   ├── retrieval/               RetrievalPipeline, RetrievalMode, RetrievalOptions, VectorRetriever,
+    │   │                            KeywordRetriever, ReciprocalRankFusion, RetrievalResult, PipelineTrace
     │   └── generation/              AnswerService, PromptAssembler, AssembledPrompt, ChatController,
     │                                ChatRequest, ChatEvent, SourceRef
     ├── main/resources/

@@ -268,6 +268,8 @@ Run TDD inside each milestone (superpowers:test-driven-development). Pause at M3
       this, not missing IDF.
     - Exploratory, outside the harness: `ts_rank` reaches keyword-alone hit@5 0.925 and MRR@10 0.823. Switching to it
       is a candidate amendment, to be measured under the same rule.
+    - **Re-run outcome** (amendment 27, report 2026-10-06T09-34-14Z): **HYBRID becomes the default.** Hybrid MRR@10
+      0.915 vs vector 0.864; hit@5 0.981 vs 0.981.
 25. **Golden items take optional `tags`.**
     - 12 identifier questions (`i01`–`i12`) and `h01` are tagged `identifier`, which makes golden set v2 53 items.
     - Reports add a per-tag table.
