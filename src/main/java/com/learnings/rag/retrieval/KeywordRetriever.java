@@ -20,9 +20,10 @@ import tools.jackson.databind.json.JsonMapper;
  * with {@code |} asks for chunks matching any term. Dotted identifiers stay single lexemes, so exact property and
  * class names match precisely.
  * <p>
- * Ranking is {@code ts_rank_cd}, as the spec fixed it. Under OR it scores every occurrence of any term at full weight,
- * so a chunk repeating a common word ("default") outranks the one chunk holding a rare identifier; the M4 eval
- * measured this (see eval/README.md). Websearch {@code -negation} is ignored: OR-ed, a negated term would match every
+ * Ranking is {@code ts_rank} with normalization 1 (divided by 1 + log of the chunk's length). The spec first fixed
+ * {@code ts_rank_cd}, but under OR that scores every occurrence of any term at full weight, so a chunk repeating a
+ * common word ("default") outranked the one chunk holding a rare identifier. The M4 eval measured both (see
+ * eval/README.md, spec amendment 27). Websearch {@code -negation} is ignored: OR-ed, a negated term would match every
  * chunk that lacks it at score 0, so rows scoring 0 are dropped, and a question of only negated terms finds nothing.
  */
 @Component
@@ -32,10 +33,10 @@ public class KeywordRetriever {
     };
 
     private static final String SEARCH = """
-            SELECT id::text AS id, content, metadata::text AS metadata, ts_rank_cd(content_tsv, q.query) AS rank
+            SELECT id::text AS id, content, metadata::text AS metadata, ts_rank(content_tsv, q.query, 1) AS rank
             FROM vector_store,
                  (SELECT replace(websearch_to_tsquery('english', :question)::text, '&', '|')::tsquery AS query) q
-            WHERE content_tsv @@ q.query AND ts_rank_cd(content_tsv, q.query) > 0 AND metadata->>'%s' = :model
+            WHERE content_tsv @@ q.query AND ts_rank(content_tsv, q.query, 1) > 0 AND metadata->>'%s' = :model
             ORDER BY rank DESC, id
             LIMIT :limit
             """.formatted(ChunkMetadata.EMBEDDING_MODEL);
@@ -50,7 +51,7 @@ public class KeywordRetriever {
         this.embeddingModel = properties.embeddingModel();
     }
 
-    /** Up to {@code limit} chunks, best first; empty when the question has no searchable words. */
+    /** Up to {@code limit} chunks, best first, scored by {@code ts_rank}; empty when the question has no searchable words. */
     public List<Document> retrieve(String question, int limit) {
         return jdbc.sql(SEARCH)
                 .param("question", question)

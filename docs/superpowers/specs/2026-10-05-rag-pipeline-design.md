@@ -274,6 +274,14 @@ Run TDD inside each milestone (superpowers:test-driven-development). Pause at M3
     - The M3 baseline (v1, 41 items) stays recorded as history.
 26. **Chat sources carry `scores`**, a map from stage to score (`vector`, `keyword`, `fusion`). The UI shows them,
     labelling the vector score "similarity".
+27. **Keyword ranking switches from `ts_rank_cd` to `ts_rank(content_tsv, query, 1)`** (2026-10-06, user decision
+    after the M4 review).
+    - Under OR semantics, `ts_rank_cd` scores every occurrence of any term at full weight, so common words outrank rare
+      identifiers. Keyword search alone scored 0.509 hit@5, against 0.962 for normalised `ts_rank` in an exploratory
+      run.
+    - Normalization 1 divides by 1 + log of the chunk's length.
+    - The variant was chosen after seeing exploratory numbers on this same golden set, which risks overfitting to it.
+    - The M4 comparison is re-run with the amendment 24 rule unchanged.
 
 **Scope decision (2026-10-05):** this stays a learning project. Production hardening (auth, document ACLs, rate limits,
 async ingestion jobs, CI eval gates, deployment) is intentionally out of scope.

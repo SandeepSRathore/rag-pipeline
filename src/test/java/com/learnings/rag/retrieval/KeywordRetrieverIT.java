@@ -81,6 +81,26 @@ class KeywordRetrieverIT {
     }
 
     @Test
+    void aRareExactIdentifierOutranksARepeatedCommonWord() {
+        // Under OR, a ranking that counts every occurrence at full weight lets "default" x12 beat the one chunk
+        // that holds the property the developer typed.
+        ingestionService().ingest("defaults.adoc", "defaults", "= Defaults\n\n"
+                + "The default is the default. Defaults: default, default, default. ".repeat(3), Origin.CORPUS);
+
+        List<Document> results = keywordRetriever.retrieve(
+                "What is the default of spring.ai.vectorstore.pgvector.index-type?", 5);
+
+        assertThat(results.getFirst().getMetadata())
+                .containsEntry(ChunkMetadata.SOURCE_PATH, "pgvector.adoc")
+                .containsEntry(ChunkMetadata.BREADCRUMB, "Configuration properties");
+    }
+
+    private DocumentIngestionService ingestionService() {
+        return new DocumentIngestionService(vectorStore, documents, new StructureAwareChunker(properties), properties,
+                transactionManager);
+    }
+
+    @Test
     void matchesChunksContainingAnyTermNotOnlyAllOfThem() {
         // "zebracorn" occurs in no chunk: with AND semantics this question would match nothing.
         List<Document> results = keywordRetriever.retrieve("How do I stream responses with a zebracorn?", 10);
