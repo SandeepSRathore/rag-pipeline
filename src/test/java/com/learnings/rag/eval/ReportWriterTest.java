@@ -15,6 +15,7 @@ import com.learnings.rag.eval.EvalReport.ItemResult;
 import com.learnings.rag.eval.EvalReport.RunInfo;
 import com.learnings.rag.eval.RetrievalMetrics.ItemScore;
 import com.learnings.rag.eval.RetrievalMetrics.RankedSource;
+import com.learnings.rag.retrieval.RetrievalMode;
 import com.learnings.rag.retrieval.RetrievalOptions;
 
 import tools.jackson.databind.json.JsonMapper;
@@ -41,7 +42,7 @@ class ReportWriterTest {
                 new EvalReport.TagSummary("identifier", RetrievalMetrics.summarize(List.of(miss.score()), List.of(80L))),
                 new EvalReport.TagSummary("untagged", RetrievalMetrics.summarize(List.of(hit.score()), List.of(120L))));
         return new EvalReport(Instant.parse("2026-10-06T09:30:00Z"), run,
-                List.of(new ConfigResult("vector", new RetrievalOptions(10, 0.0), summary, byTag, List.of(hit, miss))));
+                List.of(new ConfigResult("vector", new RetrievalOptions(10, 0.0, RetrievalMode.VECTOR, 20), summary, byTag, List.of(hit, miss))));
     }
 
     @Test

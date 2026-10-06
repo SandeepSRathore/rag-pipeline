@@ -5,6 +5,8 @@ import java.nio.file.Path;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 
+import com.learnings.rag.retrieval.RetrievalMode;
+
 /**
  * @param corpusDir directory scanned by {@code POST /api/ingest/corpus}; filled by scripts/fetch-corpus.sh
  * @param embeddingModel identifies the embedding model; part of every document fingerprint, so switching models
@@ -30,9 +32,13 @@ public record RagProperties(@DefaultValue("corpus") Path corpusDir,
 
     /**
      * @param topK number of chunks handed to the model
-     * @param similarityThreshold minimum cosine similarity; 0 keeps everything (the M6 reranker owns refusals)
+     * @param similarityThreshold minimum cosine similarity for vector search; 0 keeps every positive similarity
+     * @param mode which retrievers run: VECTOR, KEYWORD, or HYBRID (both, fused with reciprocal rank fusion)
+     * @param candidates in HYBRID mode, how many chunks each retriever contributes before fusion
      */
     public record Retrieval(@DefaultValue("5") int topK,
-            @DefaultValue("0.0") double similarityThreshold) {
+            @DefaultValue("0.0") double similarityThreshold,
+            @DefaultValue("VECTOR") RetrievalMode mode,
+            @DefaultValue("20") int candidates) {
     }
 }

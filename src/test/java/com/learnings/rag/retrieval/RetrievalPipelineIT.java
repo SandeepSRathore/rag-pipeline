@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.ai.document.Document;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.ai.vectorstore.VectorStore;
@@ -88,6 +89,32 @@ class RetrievalPipelineIT {
         assertThat(pipeline.retrieve(question, RetrievalOptions.from(properties).withTopK(10)).documents())
                 .hasSizeGreaterThan(5)
                 .hasSizeLessThanOrEqualTo(10);
+    }
+
+    @Test
+    void keywordModeFindsAnExactIdentifier() {
+        RetrievalResult result = pipeline.retrieve("spring.ai.vectorstore.pgvector.index-type",
+                RetrievalOptions.from(properties).withMode(RetrievalMode.KEYWORD));
+
+        assertThat(result.documents().getFirst().getMetadata())
+                .containsEntry(ChunkMetadata.SOURCE_PATH, "pgvector.adoc")
+                .containsEntry(ChunkMetadata.BREADCRUMB, "Configuration properties");
+        assertThat(result.trace().stages()).extracting(PipelineTrace.Stage::name).containsExactly("keyword");
+    }
+
+    @Test
+    void hybridModeFusesBothRetrieversIntoTopK() {
+        RetrievalResult result = pipeline.retrieve("Which index type is HNSW and how does it build its graph?",
+                RetrievalOptions.from(properties).withMode(RetrievalMode.HYBRID));
+
+        assertThat(result.documents()).isNotEmpty().hasSizeLessThanOrEqualTo(5)
+                .extracting(Document::getId).doesNotHaveDuplicates();
+        assertThat(result.documents().getFirst().getMetadata()).containsEntry(ChunkMetadata.SOURCE_PATH, "pgvector.adoc");
+        assertThat(result.documents()).allSatisfy(document ->
+                assertThat(document.getScore()).isLessThanOrEqualTo(2.0 / (ReciprocalRankFusion.DEFAULT_K + 1)));
+        assertThat(result.trace().stages()).extracting(PipelineTrace.Stage::name)
+                .containsExactly("vector", "keyword", "fusion");
+        assertThat(result.trace().totalMillis()).isNotNegative();
     }
 
     @Test
