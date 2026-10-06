@@ -241,6 +241,10 @@ Run TDD inside each milestone (superpowers:test-driven-development). Pause at M3
     and aborts after 3 consecutive LLM failures.
 20. **`golden` and `eval` are non-web profiles that exit when done:**
     `./mvnw spring-boot:run -Dspring-boot.run.profiles=golden|eval`.
+21. **The first golden-set review was delegated** (2026-10-06): the user asked Claude to review the draft and proceed.
+    The baseline is therefore measured against an AI-reviewed set, and the docs say so. The intended process is
+    unchanged: a human review comes before the golden set is used. `expectedSources` are relevant answer locations,
+    as in IR: hit@5 needs any of them in the top 5, and recall@5 is the share found there.
 
 **Scope decision (2026-10-05):** this stays a learning project. Production hardening (auth, document ACLs, rate limits,
 async ingestion jobs, CI eval gates, deployment) is intentionally out of scope.

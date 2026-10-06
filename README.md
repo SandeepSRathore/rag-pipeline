@@ -536,7 +536,8 @@ Retrieval *quality* is not unit-tested; that is the job of M3's evaluation harne
 
 ## Evaluation
 
-Retrieval quality is measured against a hand-reviewed golden set ([`eval/README.md`](eval/README.md)):
+Retrieval quality is measured against a reviewed golden set ([`eval/README.md`](eval/README.md)). The current set was
+reviewed by Claude at the user's request rather than by a human:
 
 ```bash
 ./mvnw spring-boot:run -Dspring-boot.run.profiles=golden   # draft eval/golden-set.draft.json (LLM-written questions)
@@ -551,7 +552,7 @@ labels name a page and a heading path, not chunk ids, so the set survives re-chu
 
 | Config | hit@5 | recall@5 | MRR@10 | p50 ms | p95 ms |
 |---|---|---|---|---|---|
-| vector | 0.976 | 0.963 | 0.862 | 463 | 783 |
+| vector | 0.976 | 0.967 | 0.902 | 488 | 830 |
 
 The golden set was AI-reviewed and is near ceiling for vector search; see [`eval/README.md`](eval/README.md#baseline)
 for what that means for M4–M6.

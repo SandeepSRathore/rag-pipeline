@@ -138,6 +138,10 @@
       {
         "sourcePath": "api/embeddings/ollama-embeddings.adoc",
         "sectionPrefix": "Auto-pulling Models"
+      },
+      {
+        "sourcePath": "api/chat/ollama-chat.adoc",
+        "sectionPrefix": "Auto-pulling Models"
       }
     ],
     "referenceAnswer": "Set spring.ai.ollama.init.pull-model-strategy to when_missing (PullModelStrategy.WHEN_MISSING). With this setting the model will only be fetched when it is not present in your Ollama instance, although that may mean an older model version is used.",
@@ -178,6 +182,10 @@
       {
         "sourcePath": "api/mcp/mcp-annotations-server.adoc",
         "sectionPrefix": "Server Annotations › @McpTool"
+      },
+      {
+        "sourcePath": "api/tools.adoc",
+        "sectionPrefix": "MCP Tools › Exposing Spring Tools as an MCP Server"
       }
     ],
     "referenceAnswer": "Mark the class as a Spring bean (for example with @Component), annotate the method with @McpTool supplying a name and description, and annotate each parameter with @McpToolParam to provide parameter descriptions and required flags. Spring Boot auto-configuration will detect those annotated beans and register the declared tools with the MCP server and clients.",
@@ -426,6 +434,10 @@
       {
         "sourcePath": "guides/llm-as-judge.adoc",
         "sectionPrefix": "Complete Example"
+      },
+      {
+        "sourcePath": "guides/llm-as-judge.adoc",
+        "sectionPrefix": "The SelfRefineEvaluationAdvisor"
       }
     ],
     "referenceAnswer": "It evaluates the response and, when the evaluation fails, supplies feedback and retries the call; in the example a first attempt with an impossible temperature was rejected with feedback and a subsequent attempt produced a realistic temperature and passed, yielding the final response.",

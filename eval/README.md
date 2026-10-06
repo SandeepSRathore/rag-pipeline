@@ -1,6 +1,7 @@
 # Evaluation
 
-`golden-set.json` is the hand-reviewed question set that every retrieval change is measured against. Each question
+`golden-set.json` is the reviewed question set that every retrieval change is measured against. The current set was
+reviewed by Claude at the user's request, not by a human; see [Baseline](#baseline). Each question
 names the section(s) that answer it (`sourcePath` + heading-path `sectionPrefix`), not chunk ids, so the set stays
 valid when chunking changes.
 
@@ -66,24 +67,24 @@ This writes `eval/reports/<UTC time>.md` and `.json` (gitignored). Each report r
 | Metric | Meaning |
 |---|---|
 | hit@5 | Share of questions with at least one relevant chunk in the top 5, which is what chat hands the model. |
-| recall@5 | Per question, the share of its expected sources found in the top 5, averaged. |
+| recall@5 | Per question, the share of its expected sources found in the top 5, averaged. This is standard IR recall: every listed section counts as a relevant answer location. |
 | MRR@10 | Mean of 1 / rank of the first relevant chunk within the top 10 (0 if none). |
 | p50 / p95 | Retrieval latency per question in ms, including the query-embedding call (nearest-rank percentiles). |
 
 ## Baseline
 
-Recorded on 2026-10-06 from `eval/reports/2026-10-06T04-33-45Z.md`:
+Recorded on 2026-10-06 from `eval/reports/2026-10-06T04-51-23Z.md`:
 
 | | |
 |---|---|
-| Golden set | `eval/golden-set.json` (41 questions, sha256 `e619aaa276d0…`) |
+| Golden set | `eval/golden-set.json` (41 questions, sha256 `d6f40095211d…`) |
 | Index | 51 corpus pages, 0 uploads, 1106 chunks |
 | Embedding model | `text-embedding-3-small` |
 | Chunking | max 500 · min 50 · overlap 60 tokens |
 
 | Config | hit@5 | recall@5 | MRR@10 | p50 ms | p95 ms |
 |---|---|---|---|---|---|
-| vector | 0.976 | 0.963 | 0.862 | 463 | 783 |
+| vector | 0.976 | 0.967 | 0.902 | 488 | 830 |
 
 Baseline: vector-only retrieval (M2 pipeline), top 10, text-embedding-3-small. Every later configuration is compared with this row on the same golden set (sha256 above).
 
@@ -96,5 +97,10 @@ About this golden set:
   - 3 items gained a second source.
 
   A human pass may still move the numbers.
+- **Labels corrected after the whole-branch review:** for `q13`, `q16` and `q38`, a section ranked above the label
+  answers the question just as well. Examples are the identical "Auto-pulling Models" section on the Ollama chat page,
+  and the `tools.adoc` section on exposing beans with `@McpTool`. These sections were added as alternative sources,
+  which raised MRR@10 from 0.862 to 0.902. Six other items had higher-ranked chunks that do *not* answer (link lists,
+  intros), and they were left unchanged.
 - **The one miss** is `q32` (Neo4j prerequisites). The right page is retrieved, but its Prerequisites section is not in the top 10. It is kept as a genuine retrieval miss.
 - **Near-ceiling numbers:** they are expected. A question written from one chunk is semantically close to that chunk, which favours vector search. The headroom for M4–M6 is mostly in MRR@10 and in harder questions: identifier lookups, troubleshooting phrasing, and answers that span several sections. Add such items before M4 to make its comparison sharper.
