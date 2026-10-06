@@ -128,10 +128,15 @@ function renderSources(sources) {
       element('pre', { textContent: s.text })))));
 }
 
-// The score of each stage that returned the chunk; vector search is shown as "similarity".
+// The score of each stage that returned the chunk; vector search is shown as "similarity". With several query
+// variants the per-variant scores are condensed to the join score and how many variants found the chunk.
 function scoreText(s) {
   const entries = Object.entries(s.scores || {});
   if (entries.length === 0) return s.score == null ? '' : `score ${s.score.toFixed(3)}`;
+  if ('join' in s.scores) {
+    const queries = new Set(entries.filter(([stage]) => stage.includes(':')).map(([stage]) => stage.split(':')[0])).size;
+    return `join ${s.scores.join.toFixed(4)} · found by ${queries} ${queries === 1 ? 'query' : 'queries'}`;
+  }
   return entries.map(([stage, value]) => `${stage === 'vector' ? 'similarity' : stage} ${value.toFixed(3)}`).join(' · ');
 }
 

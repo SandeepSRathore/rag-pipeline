@@ -36,4 +36,15 @@ class RetrievalOptionsTest {
         assertThatThrownBy(() -> new RetrievalOptions(5, 0.0, RetrievalMode.VECTOR, 0)).hasMessageContaining("candidates");
         assertThatThrownBy(() -> new RetrievalOptions(5, 0.0, null, 20)).hasMessageContaining("mode");
     }
+
+    @Test
+    void rewriteAndVariantsDefaultToOffAndCanBeSetPerCall() {
+        RetrievalOptions options = new RetrievalOptions(5, 0.0, RetrievalMode.HYBRID, 20);
+
+        assertThat(options.rewrite()).isFalse();
+        assertThat(options.queryVariants()).isZero();
+        assertThat(options.withRewrite(true).withQueryVariants(3))
+                .isEqualTo(new RetrievalOptions(5, 0.0, RetrievalMode.HYBRID, 20, true, 3));
+        assertThatThrownBy(() -> options.withQueryVariants(-1)).hasMessageContaining("queryVariants");
+    }
 }
