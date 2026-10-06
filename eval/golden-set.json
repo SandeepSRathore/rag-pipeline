@@ -477,7 +477,10 @@
       }
     ],
     "referenceAnswer": "It controls when the JDBC chat-memory schema is created: embedded (the default, only for embedded databases), always, or never.",
-    "sourceExcerpt": null
+    "sourceExcerpt": null,
+    "tags": [
+      "identifier"
+    ]
   },
   {
     "id": "h02",
@@ -518,5 +521,193 @@
     ],
     "referenceAnswer": "Use Spring Boot's Docker Compose or Testcontainers dev services, or start the pgvector Docker image yourself as shown in the 'Run Postgres & PGVector DB locally' appendix.",
     "sourceExcerpt": null
+  },
+  {
+    "id": "i01",
+    "question": "What does spring.ai.chat.client.observations.log-completion do?",
+    "expectedSources": [
+      {
+        "sourcePath": "observability/index.adoc",
+        "sectionPrefix": "Chat Client › Prompt and Completion Data"
+      }
+    ],
+    "referenceAnswer": "It controls whether the chat client's completion content is logged; it is false by default.",
+    "sourceExcerpt": null,
+    "tags": [
+      "identifier"
+    ]
+  },
+  {
+    "id": "i02",
+    "question": "spring.ai.vectorstore.milvus.client.rpc-deadline-ms",
+    "expectedSources": [
+      {
+        "sourcePath": "api/vectordbs/milvus.adoc",
+        "sectionPrefix": "Milvus VectorStore properties"
+      }
+    ],
+    "referenceAnswer": "How long the client waits for a reply from the Milvus server; with a deadline set, the client waits through fast RPC failures caused by network fluctuations.",
+    "sourceExcerpt": null,
+    "tags": [
+      "identifier"
+    ]
+  },
+  {
+    "id": "i03",
+    "question": "What does spring.ai.chat.memory.cassandra.time-to-live control?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/chat-memory.adoc",
+        "sectionPrefix": "Memory Storage › CassandraChatMemoryRepository"
+      }
+    ],
+    "referenceAnswer": "The time to live (TTL) of chat-memory messages written to Cassandra.",
+    "sourceExcerpt": null,
+    "tags": [
+      "identifier"
+    ]
+  },
+  {
+    "id": "i04",
+    "question": "What is the default of spring.ai.vectorstore.neo4j.embedding-dimension?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/vectordbs/neo4j.adoc",
+        "sectionPrefix": "Auto-configuration › Configuration Properties"
+      }
+    ],
+    "referenceAnswer": "1536: the number of dimensions in the stored vectors.",
+    "sourceExcerpt": null,
+    "tags": [
+      "identifier"
+    ]
+  },
+  {
+    "id": "i05",
+    "question": "What can I set spring.ai.openai.chat.output-modalities to?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/chat/openai-chat.adoc",
+        "sectionPrefix": "Auto-configuration › Chat Properties › Configuration Properties"
+      }
+    ],
+    "referenceAnswer": "The output types the model should generate for the request; text is the default.",
+    "sourceExcerpt": null,
+    "tags": [
+      "identifier"
+    ]
+  },
+  {
+    "id": "i06",
+    "question": "spring.ai.chat.client.tool-search-advisor.max-results default",
+    "expectedSources": [
+      {
+        "sourcePath": "api/tools/tool-search-tool.adoc",
+        "sectionPrefix": "Spring Boot Auto-Configuration › Configuration Properties Reference"
+      }
+    ],
+    "referenceAnswer": "The maximum number of tool references returned per search call; null, the default, uses the built-in limit.",
+    "sourceExcerpt": null,
+    "tags": [
+      "identifier"
+    ]
+  },
+  {
+    "id": "i07",
+    "question": "What is the default spring.ai.retry.backoff.max-interval?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/chat/openai-chat.adoc",
+        "sectionPrefix": "Auto-configuration › Chat Properties › Retry Properties"
+      },
+      {
+        "sourcePath": "api/embeddings/openai-embeddings.adoc",
+        "sectionPrefix": "Auto-configuration › Embedding Properties › Retry Properties"
+      }
+    ],
+    "referenceAnswer": "3 minutes: the maximum backoff duration between retries.",
+    "sourceExcerpt": null,
+    "tags": [
+      "identifier"
+    ]
+  },
+  {
+    "id": "i08",
+    "question": "What happens if I set spring.ai.tools.limits.max-calls-per-tool-default to -1?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/tools.adoc",
+        "sectionPrefix": "Tool Specification Reference › Tool Call Limits"
+      }
+    ],
+    "referenceAnswer": "-1 disables the per-turn limit on calls to one tool; the default limit is 40.",
+    "sourceExcerpt": null,
+    "tags": [
+      "identifier"
+    ]
+  },
+  {
+    "id": "i09",
+    "question": "spring.ai.vectorstore.redis.semantic-cache.prefix",
+    "expectedSources": [
+      {
+        "sourcePath": "api/vectordbs/redis.adoc",
+        "sectionPrefix": "Semantic Caching › Configuration Properties"
+      }
+    ],
+    "referenceAnswer": "The key prefix for cached entries in Redis; semantic-cache: by default.",
+    "sourceExcerpt": null,
+    "tags": [
+      "identifier"
+    ]
+  },
+  {
+    "id": "i10",
+    "question": "Where does spring.ai.embedding.transformer.cache.directory keep ONNX models by default?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/embeddings/onnx.adoc",
+        "sectionPrefix": "Auto-configuration › Embedding Properties"
+      }
+    ],
+    "referenceAnswer": "In ${java.io.tmpdir}/spring-ai-onnx-model, the directory used to cache remote resources such as ONNX models.",
+    "sourceExcerpt": null,
+    "tags": [
+      "identifier"
+    ]
+  },
+  {
+    "id": "i11",
+    "question": "How do I cap web searches per request with spring.ai.anthropic.chat.web-search-tool.max-uses?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/chat/anthropic-chat.adoc",
+        "sectionPrefix": "Auto-Configuration › Configuration Properties"
+      },
+      {
+        "sourcePath": "api/chat/anthropic-chat.adoc",
+        "sectionPrefix": "Web Search › Spring Boot Configuration"
+      }
+    ],
+    "referenceAnswer": "Set spring.ai.anthropic.chat.web-search-tool.max-uses to the maximum number of web searches allowed per request, e.g. 5.",
+    "sourceExcerpt": null,
+    "tags": [
+      "identifier"
+    ]
+  },
+  {
+    "id": "i12",
+    "question": "What does spring.ai.ollama.chat.num-predict -1 mean?",
+    "expectedSources": [
+      {
+        "sourcePath": "api/chat/ollama-chat.adoc",
+        "sectionPrefix": "Auto-configuration › Chat Properties"
+      }
+    ],
+    "referenceAnswer": "num-predict is the maximum number of tokens to generate; -1 (the default) means unlimited generation and -2 fills the context.",
+    "sourceExcerpt": null,
+    "tags": [
+      "identifier"
+    ]
   }
 ]

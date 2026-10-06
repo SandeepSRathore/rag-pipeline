@@ -71,6 +71,14 @@ This writes `eval/reports/<UTC time>.md` and `.json` (gitignored). Each report r
 | MRR@10 | Mean of 1 / rank of the first relevant chunk within the top 10 (0 if none). |
 | p50 / p95 | Retrieval latency per question in ms, including the query-embedding call (nearest-rank percentiles). |
 
+## Golden set versions
+
+- **v1 (M3, 41 items):** generated, AI-reviewed, plus `h01`–`h04`. The M3 baseline below was measured on v1.
+- **v2 (M4, 53 items):** adds `i01`–`i12`. Each is a question naming a Spring AI property the way a developer would
+  type it, and each label was checked against the index while planning. These items and `h01` carry
+  `"tags": ["identifier"]`, so reports show the identifier questions separately from the rest (`untagged`). Keyword
+  search is expected to help most on identifiers.
+
 ## Baseline
 
 Recorded on 2026-10-06 from `eval/reports/2026-10-06T04-51-23Z.md`:
