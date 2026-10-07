@@ -63,8 +63,8 @@ rag:
     query-variants: 0             # extra phrasings searched and fused across queries; 0 = off (M5 eval)
     utility-model: gpt-4.1-mini   # rewriting, expansion and reranking; must accept temperature 0
     rerank:
-      enabled: false              # rate the candidates 0-10 with the utility model, keep the best top-k (M6 eval)
-      min-score: 0                # drop candidates rated below this; none left → "I couldn't find…" (M6 eval)
+      enabled: true               # rate the candidates 0-10 with the utility model, keep the best top-k (M6 eval)
+      min-score: 6                # drop candidates rated below this; none left → "I couldn't find…" (M6 eval)
   eval:
     golden-set: eval/golden-set.json         # reviewed (see eval/README.md), committed
     reports-dir: eval/reports                # gitignored

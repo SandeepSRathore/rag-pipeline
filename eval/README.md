@@ -92,6 +92,138 @@ hit@5, recall@5, MRR@10 and latency cover only the answerable questions.
   the corpus doesn't answer them. They measure refusals; hit@5, recall@5, MRR@10 and latency still cover the 63
   answerable questions, so the numbers stay comparable with v3.
 
+## M6: reranking and refusals
+
+Recorded on 2026-10-07 from `eval/reports/2026-10-07T03-58-23Z.md` (run 1; golden set v4: 63 answerable and 10
+unanswerable questions; reranker `gpt-4.1-mini` at temperature 0):
+
+| | |
+|---|---|
+| Golden set | `eval/golden-set.json` (73 questions, sha256 `8eda988add77…`) |
+| Index | 51 corpus pages, 0 uploads, 1106 chunks |
+| Embedding model | `text-embedding-3-small` |
+| Chunking | max 500 · min 50 · overlap 60 tokens |
+
+| Config | hit@5 | recall@5 | MRR@10 | refused: unanswerable | refused: answerable | p50 ms | p95 ms |
+|---|---|---|---|---|---|---|---|
+| vector | 0.984 | 0.971 | 0.851 | 0/10 | 0 | 486 | 1059 |
+| keyword | 0.952 | 0.942 | 0.830 | 0/10 | 0 | 17 | 44 |
+| hybrid | 0.984 | 0.979 | 0.905 | 0/10 | 0 | 467 | 561 |
+| hybrid+multiquery | 0.968 | 0.963 | 0.829 | 0/10 | 0 | 1860 | 2346 |
+| hybrid+rerank | 0.984 | 0.984 | 0.976 | 0/10 | 0 | 3782 | 4805 |
+| hybrid+multiquery+rerank | 0.984 | 0.979 | 0.937 | 0/10 | 0 | 5082 | 5768 |
+
+Answerable questions: 63; hit@5, recall@5, MRR@10 and latency cover these. *Refused* = retrieval came back empty, so chat answers "I couldn't find…" without calling the model.
+
+Queries searched per question (average): vector 1.0 · keyword 1.0 · hybrid 1.0 · hybrid+multiquery 4.0 (expansion fell back on 0) · hybrid+rerank 1.0 · hybrid+multiquery+rerank 4.0 (expansion fell back on 0)
+
+Rerank fell back to the fused order (questions): hybrid+rerank 0 · hybrid+multiquery+rerank 0
+
+| Config | Tag | Items | hit@5 | recall@5 | MRR@10 |
+|---|---|---|---|---|---|
+| vector | conversational | 10 | 1.000 | 1.000 | 0.783 |
+| vector | identifier | 13 | 1.000 | 0.962 | 0.753 |
+| vector | untagged | 40 | 0.975 | 0.967 | 0.900 |
+| keyword | conversational | 10 | 0.900 | 0.900 | 0.781 |
+| keyword | identifier | 13 | 1.000 | 1.000 | 1.000 |
+| keyword | untagged | 40 | 0.950 | 0.933 | 0.788 |
+| hybrid | conversational | 10 | 1.000 | 1.000 | 0.850 |
+| hybrid | identifier | 13 | 1.000 | 1.000 | 0.962 |
+| hybrid | untagged | 40 | 0.975 | 0.967 | 0.900 |
+| hybrid+multiquery | conversational | 10 | 1.000 | 1.000 | 0.733 |
+| hybrid+multiquery | identifier | 13 | 1.000 | 1.000 | 0.904 |
+| hybrid+multiquery | untagged | 40 | 0.950 | 0.942 | 0.829 |
+| hybrid+rerank | conversational | 10 | 1.000 | 1.000 | 0.950 |
+| hybrid+rerank | identifier | 13 | 1.000 | 1.000 | 1.000 |
+| hybrid+rerank | untagged | 40 | 0.975 | 0.975 | 0.975 |
+| hybrid+multiquery+rerank | conversational | 10 | 1.000 | 1.000 | 1.000 |
+| hybrid+multiquery+rerank | identifier | 13 | 1.000 | 1.000 | 0.923 |
+| hybrid+multiquery+rerank | untagged | 40 | 0.975 | 0.967 | 0.925 |
+
+**`hybrid+rerank`: min-score sweep** (run 1). Each row is what the run would have scored with
+`rag.retrieval.rerank.min-score` at that value:
+
+| min-score | hit@5 | recall@5 | MRR@10 | refused: unanswerable | refused: answerable |
+|---|---|---|---|---|---|
+| 0 | 0.984 | 0.984 | 0.976 | 0/10 | 0 |
+| 1 | 0.984 | 0.984 | 0.976 | 4/10 | 0 |
+| 2 | 0.984 | 0.984 | 0.976 | 5/10 | 0 |
+| 3 | 0.984 | 0.984 | 0.976 | 5/10 | 0 |
+| 4 | 0.984 | 0.984 | 0.976 | 6/10 | 0 |
+| 5 | 0.984 | 0.984 | 0.976 | 6/10 | 0 |
+| 6 | 0.984 | 0.984 | 0.976 | 8/10 | 0 |
+| 7 | 0.984 | 0.968 | 0.976 | 8/10 | 0 |
+| 8 | 0.968 | 0.937 | 0.960 | 8/10 | 1 |
+| 9 | 0.952 | 0.902 | 0.944 | 8/10 | 2 |
+| 10 | 0.746 | 0.688 | 0.746 | 10/10 | 14 |
+
+**`hybrid+multiquery+rerank`: min-score sweep** (run 1):
+
+| min-score | hit@5 | recall@5 | MRR@10 | refused: unanswerable | refused: answerable |
+|---|---|---|---|---|---|
+| 0 | 0.984 | 0.979 | 0.937 | 0/10 | 0 |
+| 1 | 0.984 | 0.979 | 0.937 | 5/10 | 0 |
+| 2 | 0.984 | 0.979 | 0.937 | 5/10 | 0 |
+| 3 | 0.984 | 0.979 | 0.937 | 5/10 | 0 |
+| 4 | 0.984 | 0.979 | 0.937 | 6/10 | 0 |
+| 5 | 0.984 | 0.979 | 0.937 | 6/10 | 0 |
+| 6 | 0.984 | 0.971 | 0.937 | 7/10 | 0 |
+| 7 | 0.984 | 0.963 | 0.937 | 8/10 | 0 |
+| 8 | 0.984 | 0.955 | 0.937 | 8/10 | 0 |
+| 9 | 0.937 | 0.894 | 0.897 | 8/10 | 2 |
+| 10 | 0.698 | 0.656 | 0.683 | 9/10 | 16 |
+
+**Run 2, the stability check** (`eval/reports/2026-10-07T04-13-41Z.md`), summary rows at min-score 0:
+
+| Config | hit@5 | recall@5 | MRR@10 | refused: unanswerable | refused: answerable | p50 ms | p95 ms |
+|---|---|---|---|---|---|---|---|
+| hybrid | 0.984 | 0.979 | 0.905 | 0/10 | 0 | 457 | 557 |
+| hybrid+rerank | 0.984 | 0.984 | 0.952 | 0/10 | 0 | 3578 | 4185 |
+| hybrid+multiquery+rerank | 0.984 | 0.979 | 0.944 | 0/10 | 0 | 5291 | 6424 |
+
+In run 2, `hybrid+rerank` at min-score 6 scores hit@5 0.984, recall@5 0.984 and MRR@10 0.952, and refuses 8/10
+unanswerable questions and 0 answerable ones.
+
+**Defaults: reranking is on, with min-score 6.** The rules fixed before the run (spec amendment 37) chose
+`hybrid+rerank` at min-score 6:
+- **Rule T (min-score):** in run 1, min-scores 0–7 keep hit@5 and recall@5 within 1/63 of min-score 0. At 8, recall@5
+  falls to 0.937 and an answerable question is refused. Both 6 and 7 refuse 8 of 10 unanswerable questions, so the
+  lower one, 6, wins. For `hybrid+multiquery+rerank`, rule T picks 7.
+- **Rule D (default):** at min-score 6, hit@5 0.984 equals hybrid's, and MRR@10 0.976 beats hybrid's 0.905 by 0.071,
+  more than four questions' worth (1/63 ≈ 0.016). It also refuses 8 of 10. Both rerank rows qualify, and
+  `hybrid+multiquery+rerank` (MRR@10 0.937) doesn't beat `hybrid+rerank` by 1/63, so the cheaper one wins.
+- **Stability:** run 2, on its own, picks the same configuration and the same min-score. At 6 it qualifies again:
+  MRR@10 0.952 against hybrid's 0.905, 8 of 10 refused, no false refusals.
+
+What the numbers show:
+
+- **Reranking fixed the order, not the coverage.**
+  - It moved 8 answerable questions up and none down: `q10` and `h03` from rank 4 to 1, and six others from rank 2
+    to 1.
+  - MRR@10 rose on every tag: conversational 0.850 → 0.950, identifier 0.962 → 1.000, untagged 0.900 → 0.975.
+  - hit@5 stays at 0.984. The one miss is still `q32`: every retrieved chunk comes from the right page (Neo4j, rated
+    9–10), but none from the expected section.
+- **Refusals: 8 of 10 at min-score 6, with no false refusals in either run.**
+  - The off-topic questions (`u01`–`u03`) and the Hibernate one (`u09`) get top ratings of 0. Pinecone (`u06`) gets 1,
+    the cron job (`u10`) 3, and fine-tuning (`u07`) and Spring Batch (`u08`) 5.
+  - Two near-domain questions get through. watsonx (`u04`) is matched to OpenAI's chat properties, and Couchbase
+    (`u05`) to PGvector's auto-configuration, both rated 8–9. The judge treats the same kind of answer for another
+    product as an answer. For those, the answer prompt's own "couldn't find" rule is the remaining guard; M7 measures
+    it.
+  - **The margin is narrow.** The lowest top rating of an answerable question is 7 (`i03`, in both runs), while
+    refused near-domain questions reach 5. From 8 up, answerable questions start being refused.
+- **The cost is about 3 s per question.**
+  - p50 retrieval goes from 0.47 s to 3.8 s (3.6 s in run 2). One `gpt-4.1-mini` call reads about 4,000 tokens of
+    passages and writes 20 ratings.
+  - Chat now shows its sources after about 4 s instead of 0.5 s.
+  - A refused question costs the same retrieval time but no answer-model call.
+- **Reranking partly rescues multi-query.** It lifts MRR@10 from 0.829 to 0.937 (0.850 to 0.944 in run 2), but stays
+  below rerank alone and costs another 1.3 s. Multi-query stays off.
+- **Run-to-run variance is visible.**
+  - `hybrid+rerank`'s MRR@10 was 0.976 in run 1 and 0.952 in run 2.
+  - Multi-query alone scored 0.829 and 0.850, and 0.842 in M5.
+  - The decision held in both runs.
+
 ## M5: rewriting and multi-query
 
 Recorded on 2026-10-06 from `eval/reports/2026-10-06T10-56-23Z.md` (golden set v3, 63 questions; utility model `gpt-4.1-mini` at temperature 0):

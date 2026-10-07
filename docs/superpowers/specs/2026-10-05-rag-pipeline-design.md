@@ -365,6 +365,16 @@ Run TDD inside each milestone (superpowers:test-driven-development). Pause at M3
       - It is adopted only if the winner also qualifies in run 2 at run 1's min-score.
       - Otherwise reranking stays off.
     - **Adoption:** the winner's settings become the defaults. Latency is reported, not capped.
+    - **Outcome** (run 1 2026-10-07T03-58-23Z, run 2 2026-10-07T04-13-41Z): **`hybrid+rerank` at min-score 6 becomes
+      the default.**
+      - Rule T: min-score 6 for `hybrid+rerank` and 7 for `hybrid+multiquery+rerank`. Min-scores 0–7 kept hit@5 and
+        recall@5 within 1/63; 6 and 7 both refuse 8 of 10.
+      - Rule D, run 1: hit@5 0.984 (hybrid 0.984), MRR@10 0.976 (hybrid 0.905), 8/10 refused, 0 false refusals. Both
+        candidates qualified; multi-query + rerank (MRR@10 0.937) didn't beat it by 1/63.
+      - Run 2 picked the same winner and min-score on its own: MRR@10 0.952 (hybrid 0.905), 8/10 refused, 0 false.
+      - p50 retrieval latency: 3.8 s (run 2: 3.6 s), against 0.47 s for hybrid.
+      - The two unanswerable questions that got through (watsonx, Couchbase) were matched to another product's
+        configuration and rated 8–9.
 
 **Scope decision (2026-10-05):** this stays a learning project. Production hardening (auth, document ACLs, rate limits,
 async ingestion jobs, CI eval gates, deployment) is intentionally out of scope.
