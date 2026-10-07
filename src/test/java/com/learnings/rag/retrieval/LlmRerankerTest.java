@@ -65,10 +65,10 @@ class LlmRerankerTest {
     void messyRatingsAreCleanedNotTrusted() {
         List<Document> four = List.of(chunk("a", "A"), chunk("b", "B"), chunk("c", "C"), chunk("d", "D"));
         // A string id with a decimal score; a score above 10; a repeated id (the first rating counts); unknown ids;
-        // a negative score; and candidate 4 left unrated, so it scores 0.
+        // a negative score.
         StubChatModel model = new StubChatModel("{\"ratings\": [{\"id\": \"2\", \"score\": 7.5}, {\"id\": 1, \"score\": 14},"
                 + " {\"id\": 2, \"score\": 1}, {\"id\": 0, \"score\": 10}, {\"id\": 9, \"score\": 10},"
-                + " {\"id\": 3, \"score\": -2}]}");
+                + " {\"id\": 3, \"score\": -2}, {\"id\": 4, \"score\": 0}]}");
 
         List<Document> reranked = reranker(model).rerank(QUESTION, four).orElseThrow();
 
@@ -145,5 +145,14 @@ class LlmRerankerTest {
         List<Document> candidates = candidates();
 
         assertThat(reranker(new StubChatModel("not json")).process(new Query(QUESTION), candidates)).isSameAs(candidates);
+    }
+
+    @Test
+    void aReplyThatSkipsACandidateIsAFailure() {
+        // An unrated candidate would score 0 and be dropped by the minimum score, so a partial reply could refuse an
+        // answerable question. Keeping the fused order is the safe side.
+        StubChatModel model = new StubChatModel("{\"ratings\": [{\"id\": 1, \"score\": 9}, {\"id\": 2, \"score\": 8}]}");
+
+        assertThat(reranker(model).rerank(QUESTION, candidates())).isEmpty();
     }
 }

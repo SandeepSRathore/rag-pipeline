@@ -353,7 +353,7 @@ sequenceDiagram
    - One call to the utility model rates each of the 20 candidates from 0 to 10 for how well it answers the question
      (see [`prompts/rerank.st`](src/main/resources/prompts/rerank.st)).
    - Passages are numbered and escaped, so a chunk can't pose as another passage.
-   - The ratings are cleaned: clamped to 0–10, deduplicated, and unrated candidates score 0.
+   - The ratings are cleaned: clamped to 0–10 and deduplicated. A reply that skips a candidate counts as a failure.
    - Candidates rated below `min-score` (6) are dropped, and the best 5 are kept. If none is left, the question is
      refused without calling the answer model.
    - If the rating call fails, the fused order is kept and no minimum applies.
