@@ -68,6 +68,7 @@ askForm.addEventListener('submit', async (e) => {
   $('#status').textContent = 'Retrieving…';
   $('#stats').textContent = '';
   renderSources([]);
+  renderTrace(null);
   let answer = '';
   let sourceCount = 0;
   renderAnswer(answer, sourceCount);
@@ -76,7 +77,7 @@ askForm.addEventListener('submit', async (e) => {
     const response = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-      body: JSON.stringify({ question }),
+      body: JSON.stringify({ question, debug: $('#debug').checked }),
     });
     if (!response.ok) throw new Error(await problemMessage(response));
     for await (const { event, data } of readEvents(response)) {
@@ -84,6 +85,8 @@ askForm.addEventListener('submit', async (e) => {
         sourceCount = data.sources.length;
         renderSources(data.sources);
         $('#status').textContent = 'Generating…';
+      } else if (event === 'trace') {
+        renderTrace(data.trace);
       } else if (event === 'token') {
         answer += data.text;
         renderAnswer(answer, sourceCount);
@@ -126,6 +129,38 @@ function renderSources(sources) {
     element('details', {},
       element('summary', { textContent: 'Chunk text' }),
       element('pre', { textContent: s.text })))));
+}
+
+// Debug: every retrieval stage with its timing, the queries it searched and its ranked chunks with their scores.
+function renderTrace(trace) {
+  $('#trace-heading').hidden = !trace;
+  if (!trace) {
+    $('#trace').replaceChildren();
+    return;
+  }
+  const stages = trace.stages.map((stage) => element('details', {},
+    element('summary', { textContent: stageSummary(stage) }),
+    ...(stage.queries.length ? [element('ul', { className: 'trace-queries' },
+      ...stage.queries.map((q) => element('li', { textContent: q })))] : []),
+    element('ol', { className: 'trace-hits' }, ...stage.hits.map((hit) => element('li', {},
+      element('span', { textContent: hit.breadcrumb ? `${hit.sourcePath} › ${hit.breadcrumb}` : hit.sourcePath }),
+      element('span', { className: 'score', textContent: traceScore(stage.name, hit.score) }))))));
+  $('#trace').replaceChildren(
+    element('p', { className: 'stats', textContent: `retrieval ${trace.totalMillis} ms (wall clock; stages can overlap)` }),
+    ...stages);
+}
+
+function stageSummary(stage) {
+  if (stage.name === 'rerank-failed') return `rerank failed · ${stage.elapsedMillis} ms · fused order kept`;
+  const parts = [stage.name, `${stage.elapsedMillis} ms`];
+  if (stage.queries.length) parts.push(`${stage.queries.length} ${stage.queries.length === 1 ? 'query' : 'queries'}`);
+  if (stage.hits.length) parts.push(`${stage.hits.length} chunks`);
+  return parts.join(' · ');
+}
+
+function traceScore(stageName, score) {
+  if (score == null) return '';
+  return stageName === 'rerank' ? `${Number.isInteger(score) ? score : score.toFixed(1)}/10` : score.toFixed(4);
 }
 
 // The score of each stage that returned the chunk; vector search is shown as "similarity". With several query

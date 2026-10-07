@@ -42,8 +42,8 @@ multi-query, reranking) gets added only after an evaluation harness can measure 
 | M4 | Keyword search (`tsvector`) plus reciprocal rank fusion: hybrid retrieval | ✅ done (hybrid is the default; see Evaluation) |
 | M5 | Query rewriting and multi-query expansion, parallel retrieval | ✅ done (both measured; off by default) |
 | M6 | LLM reranker with a minimum score, so off-topic questions are refused | ✅ done (on by default, min-score 6; see Evaluation) |
-| M7 | Generation evals (faithfulness, relevancy, citation validity), `/api/retrieve`, debug panel | next |
-| M8 | *(optional)* Local `ollama` profile | planned |
+| M7 | Generation evals (faithfulness, relevancy, citation validity), `/api/retrieve`, debug panel | ✅ done (partial answer baseline; 3 checks deferred, see Roadmap) |
+| M8 | *(optional)* Local `ollama` profile | next (optional) |
 
 The current pipeline is the **naive baseline** that M3's evaluation will measure. Every later milestone has to beat it on
 the same golden set.
@@ -131,6 +131,18 @@ There are two guards:
    model to say *"I couldn't find this in the indexed documentation."* instead of answering from general knowledge.
    - This guards the questions the reranker lets through. For example, a question about a provider the docs don't
      cover can look answered by another provider's settings.
+
+### Debug trace
+
+Tick **Debug trace** next to the Ask button to see how the sources were found. Under the sources, a **Retrieval
+trace** lists every stage:
+- vector and keyword search, fusion and reranking, plus any rewrite, expansion or per-query stages;
+- each stage's time and the chunks it returned, with their scores, including the reranker's 0–10 rating of all 20
+  candidates;
+- the wall-clock total.
+
+A failed rerank shows as `rerank failed · fused order kept`. The same trace is available without an answer from
+`POST /api/retrieve`.
 
 ### Manage documents
 
@@ -353,7 +365,7 @@ sequenceDiagram
    - One call to the utility model rates each of the 20 candidates from 0 to 10 for how well it answers the question
      (see [`prompts/rerank.st`](src/main/resources/prompts/rerank.st)).
    - Passages are numbered and escaped, so a chunk can't pose as another passage.
-   - The ratings are cleaned: clamped to 0–10, deduplicated, and unrated candidates score 0.
+   - The ratings are cleaned: clamped to 0–10 and deduplicated. A reply that skips a candidate counts as a failure.
    - Candidates rated below `min-score` (6) are dropped, and the best 5 are kept. If none is left, the question is
      refused without calling the answer model.
    - If the rating call fails, the fused order is kept and no minimum applies.
@@ -385,6 +397,7 @@ All error responses are RFC 9457 problem details, e.g.
 | Method | Path | Purpose | Success | Errors |
 |---|---|---|---|---|
 | `POST` | `/api/chat` | Ask a question; returns an SSE stream | `200 text/event-stream` | `400` blank or over 2,000 characters |
+| `POST` | `/api/retrieve` | Retrieval only: the chunks and the full trace, no answer | `200` JSON | `400` blank question, out-of-range setting or unknown mode |
 | `POST` | `/api/ingest/corpus` | Sync `corpus/` into the index | `200` report | `409` corpus missing or empty |
 | `GET` | `/api/documents` | List indexed documents | `200` array | — |
 | `POST` | `/api/documents` | Upload one file (multipart field `file`) | `201` added, `200` updated or skipped | `400` no file name, `415` unsupported type, `422` no extractable text |
@@ -418,13 +431,38 @@ data:{"promptTokens":1641,"completionTokens":382,"retrievalMillis":1099,"generat
 
 | Event | Payload | When |
 |---|---|---|
-| `sources` | `{"sources": [{n, sourcePath, title, breadcrumb, score, text, scores}]}` | Once, first. `score` is what the chunk was ranked by: the fused RRF score in hybrid mode, cosine similarity in vector mode. `scores` gives each retrieval stage's score (`vector`, `keyword`, `fusion`). `n` is the number the model cites. |
+| `sources` | `{"sources": [{n, sourcePath, title, breadcrumb, score, text, scores}]}` | Once, first. `score` is what the chunk was ranked by last: the reranker's 0–10 rating by default, otherwise the fused RRF score (hybrid) or cosine similarity (vector). `scores` gives each retrieval stage's score (`vector`, `keyword`, `fusion`, `rerank`). `n` is the number the model cites. |
+| `trace` | `{"trace": {"stages": [{name, elapsedMillis, hits, queries}], "totalMillis"}}` | Only when the request has `"debug": true`, right after `sources`. Every retrieval stage with its ranked hits and scores. |
 | `token` | `{"text": "…"}` | Any number of times. |
 | `done` | `{promptTokens, completionTokens, retrievalMillis, generationMillis}` | Once, last. The token counts are `null` when no model call was made. |
 | `error` | `{"message": "Sorry, the answer could not be generated. The server log has the details."}` | Replaces `done` if anything fails. |
 
 `EventSource` can't send a POST, so the UI reads the stream with `fetch` and a `ReadableStream` parser (see
 [`app.js`](src/main/resources/static/app.js)).
+
+Add `"debug": true` to the request body to get the `trace` event. The UI's **Debug trace** toggle does this and
+shows the trace under the sources.
+
+### `POST /api/retrieve`
+
+Runs retrieval only and returns the chunks the chat would see, plus every stage of the trace. It never calls the answer
+model. Every setting but `question` is optional and defaults to its `rag.retrieval.*` value:
+
+```bash
+curl -s -X POST localhost:8081/api/retrieve -H 'Content-Type: application/json' \
+     -d '{"question":"spring.ai.vectorstore.pgvector.index-type","mode":"VECTOR","rerank":false}'
+```
+
+| Field | Values |
+|---|---|
+| `mode` | `VECTOR`, `KEYWORD` or `HYBRID` |
+| `topK` | 1–20 |
+| `rewrite`, `rerank` | `true` / `false` |
+| `queryVariants` | 0–5 |
+| `minScore` | 0–10 (only with `rerank`) |
+
+The response is `{"chunks": [{rank, id, sourcePath, breadcrumb, score, text}], "trace": {"stages": [{name,
+elapsedMillis, hits: [{id, sourcePath, breadcrumb, score}], queries}], "totalMillis"}}`.
 
 ### `POST /api/ingest/corpus`
 
@@ -617,6 +655,29 @@ Hybrid retrieval stays the default (M4), and rewriting and multi-query stay off 
 sweeps and the earlier milestones' results are in [`eval/README.md`](eval/README.md#m6-reranking-and-refusals). The
 golden set is AI-reviewed.
 
+The answers themselves are measured too (M7). The generation flag sends every question through the chat path and has
+`gpt-4.1-mini` judge each answer with Spring AI's `FactCheckingEvaluator` and `RelevancyEvaluator`:
+
+```bash
+./mvnw spring-boot:run -Dspring-boot.run.profiles=eval -Dspring-boot.run.arguments=--rag.eval.generation=true
+```
+
+**M7 answer quality (partial, 2026-10-07):**
+
+| Questions | Count | Answered | Refused by retrieval | Refused by model | Failed | Faithful | Relevant | Correct | Citations valid |
+|---|---|---|---|---|---|---|---|---|---|
+| answerable | 63 | 55 | 0 | 0 | 8 | 54/54 | 54/54 | 48/54 | 55/55 |
+| unanswerable | 10 | 0 | 0 | 0 | 10 | – | – | – | – |
+
+The run stopped being useful at question 55, when the OpenAI organization reached its spend limit. The 18 failed
+questions are API errors, and they include all of the unanswerable ones.
+- **What the 55 answers show:** each was faithful to its sources, relevant and correctly cited.
+- **Correctness:** 4 of the 6 failures miss a secondary detail of the reference answer. `q12` is a wording
+  disagreement ("implements" vs "extends"), and only `q32` is a genuinely incomplete answer.
+- **Still unmeasured:** whether the model refuses the questions the reranker lets through.
+
+Details are in [`eval/README.md`](eval/README.md#m7-answer-quality-partial-baseline).
+
 ## Design decisions
 
 The full reasoning is in the design spec, including its **Amendments** section. The decisions that most shape the code:
@@ -638,6 +699,11 @@ The full reasoning is in the design spec, including its **Amendments** section. 
 - **No authentication, authorization or rate limiting.** These are intentionally out of scope for this learning project,
   and the app binds to `127.0.0.1`.
 - **Ingestion is synchronous:** a first full sync keeps the request open for about 90 s.
+- **The answer judge is an LLM, too.**
+  - Each check is one yes/no call to `gpt-4.1-mini`.
+  - Spring AI counts only an exact "yes" as a pass, so a decorated "Yes." would be a fail.
+  - Correctness needs the whole reference answer, so it also fails an answer that omits a minor detail.
+  - Refusals are recognised by their "I couldn't find…" sentence.
 - **The reranker is an LLM judge.**
   - Its ratings vary between runs: MRR@10 was 0.976 and 0.952 in two identical eval runs.
   - It can rate another product's settings as an answer. In the eval, questions about watsonx and Couchbase got
@@ -678,7 +744,10 @@ previous configuration.
      reuse the chunk's wording.
   2. A human reviews them into `eval/golden-set.json`.
   3. `EvalRunner` (`eval` profile) reports hit@5, recall@5, MRR@10 and p50/p95 latency.
-- **M7:** faithfulness and relevancy evaluators, citation validity, `POST /api/retrieve` and a debug panel in the UI.
+- **Deferred from M7** (skipped when the OpenAI spend limit was reached):
+  1. Re-run `--rag.eval.generation=true`, above all for the unanswerable questions and the answer-side refusals.
+  2. Spec check 4 on the real index: `POST /api/retrieve` in VECTOR vs HYBRID mode for an identifier question.
+  3. The live browser check of the debug panel, and its screenshot.
 - **M8 (optional):** an `ollama` profile with local models.
 
 ## Project layout

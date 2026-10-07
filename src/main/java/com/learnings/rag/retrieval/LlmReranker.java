@@ -29,9 +29,8 @@ import org.springframework.stereotype.Component;
  * Rates how well each retrieved chunk answers the question, with one structured-output call to the utility model,
  * and reorders the chunks by that rating. Passages are numbered 1..n in the prompt (never by chunk id) and escaped, so
  * a chunk can't close its tag or pose as another passage. Ratings are cleaned rather than trusted: unknown and
- * repeated ids are ignored, scores are clamped to 0–{@value #MAX_SCORE}, and a chunk left unrated scores 0. A failed
- * call, or a reply without one usable rating, comes back empty so the caller can keep the fused order (logged, never
- * thrown).
+ * repeated ids are ignored, scores are clamped to 0–{@value #MAX_SCORE}. A failed call, or a reply that leaves any
+ * candidate unrated, comes back empty so the caller can keep the fused order (logged, never thrown).
  */
 @Component
 public class LlmReranker implements DocumentPostProcessor {
@@ -107,7 +106,10 @@ public class LlmReranker implements DocumentPostProcessor {
             return Optional.empty();
         }
         if (scores.size() < candidates.size()) {
-            log.warn("Reranking rated {} of {} candidates; the rest score 0", scores.size(), candidates.size());
+            // An unrated candidate scored 0 would be dropped by the minimum score: a partial reply could refuse an
+            // answerable question. The fused order is the safe side.
+            log.warn("Reranking rated {} of {} candidates; keeping the fused order", scores.size(), candidates.size());
+            return Optional.empty();
         }
 
         List<Document> rated = new ArrayList<>(candidates.size());
@@ -117,7 +119,7 @@ public class LlmReranker implements DocumentPostProcessor {
                     .id(candidate.getId())
                     .text(candidate.getText())
                     .metadata(candidate.getMetadata())
-                    .score(scores.getOrDefault(i + 1, 0.0))
+                    .score(scores.get(i + 1))
                     .build());
         }
         rated.sort(Comparator.comparingDouble(Document::getScore).reversed()); // stable: ties keep the incoming order

@@ -10,13 +10,19 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import com.learnings.rag.config.RagProperties;
+import com.learnings.rag.eval.AnswerJudge.Verdict;
 import com.learnings.rag.eval.EvalReport.ConfigResult;
 import com.learnings.rag.eval.EvalReport.ItemResult;
 import com.learnings.rag.eval.EvalReport.MinScoreRow;
 import com.learnings.rag.eval.EvalReport.Refusals;
 import com.learnings.rag.eval.EvalReport.RunInfo;
+import com.learnings.rag.eval.GenerationReport.Group;
+import com.learnings.rag.eval.GenerationReport.Item;
+import com.learnings.rag.eval.GenerationReport.Outcome;
 import com.learnings.rag.eval.RetrievalMetrics.ItemScore;
 import com.learnings.rag.eval.RetrievalMetrics.RankedSource;
+import com.learnings.rag.generation.AnswerService;
+import com.learnings.rag.generation.CitationValidator;
 import com.learnings.rag.retrieval.RetrievalMode;
 import com.learnings.rag.retrieval.RetrievalOptions;
 
@@ -164,5 +170,59 @@ class ReportWriterTest {
     @Test
     void configsWithoutRerankShowNoSweep() {
         assertThat(ReportWriter.markdown(report(0))).doesNotContain("min-score sweep", "Rerank fell back");
+    }
+
+    private static GenerationReport generation() {
+        Item ok = new Item("q01", "Which index?", true, Outcome.ANSWERED, 2, "HNSW [1].", Verdict.PASS, Verdict.PASS,
+                Verdict.PASS, CitationValidator.check("HNSW [1].", 2), 900);
+        Item flawed = new Item("q02", "How do I stream?", true, Outcome.ANSWERED, 3, "Use stream() [4].", Verdict.FAIL,
+                Verdict.PASS, Verdict.ERROR, CitationValidator.check("Use stream() [4].", 3), 1100);
+        Item refused = new Item("u01", "Sourdough?", false, Outcome.REFUSED_BY_RETRIEVAL, 0,
+                AnswerService.NO_SOURCES_ANSWER, null, null, null, null, 0);
+        RetrievalOptions chat = new RetrievalOptions(5, 0.0, RetrievalMode.HYBRID, 20).withRerank(true).withMinScore(6);
+        return new GenerationReport("gpt-5-mini", "gpt-4.1-mini", chat, Group.of(List.of(ok, flawed)),
+                Group.of(List.of(refused)), 900, List.of(ok, flawed, refused));
+    }
+
+    @Test
+    void theGenerationSectionSummarizesTheAnswersAndListsTheOnesToReview() {
+        String markdown = ReportWriter.markdown(report(0).withGeneration(generation()));
+
+        assertThat(markdown).contains(
+                "## Generation",
+                "Answer model `gpt-5-mini`, judge `gpt-4.1-mini`",
+                "hybrid retrieval, top 5, rerank on, min-score 6",
+                "| answerable | 2 | 2 | 0 | 0 | 0 | 1/2 | 2/2 | 1/1 | 1/2 |",
+                "| unanswerable | 1 | 0 | 1 | 0 | 0 | – | – | – | – |",
+                "p50 generation: 900 ms. Judge errors (not counted as fails): 1.",
+                "| q02 | answered | 3 | ✗ | ✓ | error | ✗ | How do I stream? |",
+                "| u01 | refused by retrieval | 0 | – | – | – | – | Sourdough? |",
+                "- **q02** How do I stream? — faithfulness failed; correctness judge error; citations out of range: 4",
+                "  > Use stream() [4].");
+        assertThat(markdown).doesNotContain("- **q01**", "- **u01**");
+    }
+
+    @Test
+    void thereIsNoGenerationSectionWithoutTheFlag() {
+        assertThat(ReportWriter.markdown(report(0))).doesNotContain("## Generation");
+    }
+
+    @Test
+    void aRefusalThatAlsoCitesSourcesIsListedForReview() {
+        // A hedged reply ("I couldn't find this… but here are another product's settings [1]") is classified as a
+        // refusal and never judged, so the report must surface it rather than count it silently as a correct refusal.
+        Item hedged = new Item("u04", "Which properties configure watsonx?", false, Outcome.REFUSED_BY_MODEL, 3,
+                "I couldn't find this in the indexed documentation. OpenAI's chat uses spring.ai.openai.chat.options.model [1].",
+                null, null, null, null, 800);
+        Item plain = new Item("u05", "Couchbase?", false, Outcome.REFUSED_BY_MODEL, 3, AnswerService.PROMPT_REFUSAL,
+                null, null, null, null, 700);
+        RetrievalOptions chat = new RetrievalOptions(5, 0.0, RetrievalMode.HYBRID, 20).withRerank(true).withMinScore(6);
+        GenerationReport generation = new GenerationReport("gpt-5-mini", "gpt-4.1-mini", chat, Group.of(List.of()),
+                Group.of(List.of(hedged, plain)), 0, List.of(hedged, plain));
+
+        String markdown = ReportWriter.markdown(report(0).withGeneration(generation));
+
+        assertThat(markdown).contains("- **u04** Which properties configure watsonx? — refusal that also cites sources");
+        assertThat(markdown).doesNotContain("- **u05**");
     }
 }

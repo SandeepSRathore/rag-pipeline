@@ -19,6 +19,8 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
+import com.learnings.rag.retrieval.PipelineTrace;
+
 import reactor.core.publisher.Flux;
 
 @WebMvcTest(ChatController.class)
@@ -32,7 +34,7 @@ class ChatControllerTest {
 
     @Test
     void streamsEventsAsNamedServerSentEvents() throws Exception {
-        when(answerService.answer("What is HNSW?")).thenReturn(Flux.just(
+        when(answerService.answer("What is HNSW?", false)).thenReturn(Flux.just(
                 new ChatEvent.Sources(List.of(new SourceRef(1, "pgvector.adoc", "PGvector", "Indexes", 0.8, "text"))),
                 new ChatEvent.Token("HNSW [1]"),
                 new ChatEvent.Done(10, 2, 5, 40)));
@@ -74,5 +76,22 @@ class ChatControllerTest {
         String question = "x".repeat(2001);
         mvc.perform(post("/api/chat").contentType(APPLICATION_JSON).content("{\"question\":\"" + question + "\"}"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void aDebugRequestAlsoStreamsTheTrace() throws Exception {
+        PipelineTrace trace = new PipelineTrace(List.of(new PipelineTrace.Stage("vector", 3, List.of())), 3);
+        when(answerService.answer("What is HNSW?", true)).thenReturn(Flux.just(
+                new ChatEvent.Sources(List.of()), new ChatEvent.Trace(trace), new ChatEvent.Token("t"),
+                new ChatEvent.Done(null, null, 3, 0)));
+
+        MvcResult started = mvc.perform(post("/api/chat").contentType(APPLICATION_JSON).accept(TEXT_EVENT_STREAM)
+                        .content("{\"question\":\"What is HNSW?\",\"debug\":true}"))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        assertThat(mvc.perform(asyncDispatch(started)).andReturn().getResponse().getContentAsString())
+                .containsSubsequence("event:sources", "event:trace", "\"name\":\"vector\"", "\"totalMillis\":3",
+                        "event:token");
     }
 }

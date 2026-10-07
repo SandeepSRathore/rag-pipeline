@@ -8,19 +8,27 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
 import org.springframework.stereotype.Component;
 
 import com.learnings.rag.config.RagProperties;
+import com.learnings.rag.eval.AnswerJudge.Verdict;
 import com.learnings.rag.eval.EvalReport.ConfigResult;
 import com.learnings.rag.eval.EvalReport.ItemResult;
 import com.learnings.rag.eval.EvalReport.MinScoreRow;
 import com.learnings.rag.eval.EvalReport.Refusals;
 import com.learnings.rag.eval.EvalReport.RunInfo;
 import com.learnings.rag.eval.EvalReport.TagSummary;
+import com.learnings.rag.eval.GenerationReport.Group;
+import com.learnings.rag.eval.GenerationReport.Item;
+import com.learnings.rag.eval.GenerationReport.Outcome;
+import com.learnings.rag.eval.GenerationReport.Rate;
 import com.learnings.rag.eval.RetrievalMetrics.RankedSource;
+import com.learnings.rag.generation.CitationValidator;
+import com.learnings.rag.retrieval.RetrievalOptions;
 
 import tools.jackson.databind.SerializationFeature;
 import tools.jackson.databind.json.JsonMapper;
@@ -189,11 +197,142 @@ public class ReportWriter {
                 }
             }
         }
+        if (report.generation() != null) {
+            generation(md, report.generation());
+        }
         return md.toString();
     }
 
     private static String refusedUnanswerable(Refusals refusals) {
         return refusals.unanswerable() == 0 ? "–" : refusals.unanswerableRefused() + "/" + refusals.unanswerable();
+    }
+
+    private static void generation(StringBuilder md, GenerationReport generation) {
+        RetrievalOptions retrieval = generation.retrieval();
+        md.append("\n## Generation\n\n")
+                .append("Answer model `").append(generation.answerModel()).append("`, judge `")
+                .append(generation.judgeModel()).append("`. Every question went through the chat path with its defaults: ")
+                .append(retrieval.mode().name().toLowerCase(Locale.ROOT)).append(" retrieval, top ")
+                .append(retrieval.topK())
+                .append(retrieval.rerank() ? ", rerank on, min-score " + number(retrieval.minScore()) : ", rerank off")
+                .append(".\n\n")
+                .append("| Questions | Count | Answered | Refused by retrieval | Refused by model | Failed | Faithful ")
+                .append("| Relevant | Correct | Citations valid |\n|---|---|---|---|---|---|---|---|---|---|\n");
+        groupRow(md, "answerable", generation.answerable());
+        groupRow(md, "unanswerable", generation.unanswerable());
+        md.append("\nFaithful, Relevant and Correct are judge verdicts on the answered questions; Correct needs a reference ")
+                .append("answer, so it covers answerable questions only. p50 generation: ")
+                .append(generation.p50GenerationMillis()).append(" ms. Judge errors (not counted as fails): ")
+                .append(generation.judgeErrors()).append(".\n");
+
+        md.append("\n### Generation: per question\n\n")
+                .append("| Id | Outcome | Sources | Faithful | Relevant | Correct | Citations | Question |\n")
+                .append("|---|---|---|---|---|---|---|---|\n");
+        for (Item item : generation.items()) {
+            md.append("| ").append(item.id())
+                    .append(" | ").append(outcome(item.outcome()))
+                    .append(" | ").append(item.sources())
+                    .append(" | ").append(verdict(item.faithful()))
+                    .append(" | ").append(verdict(item.relevant()))
+                    .append(" | ").append(verdict(item.correct()))
+                    .append(" | ").append(item.citations() == null ? "–" : item.citations().valid() ? "✓" : "✗")
+                    .append(" | ").append(cell(item.question())).append(" |\n");
+        }
+
+        md.append("\n### Answers to review\n\n");
+        List<Item> toReview = generation.items().stream().filter(item -> !reviewReasons(item).isEmpty()).toList();
+        if (toReview.isEmpty()) {
+            md.append("None.\n");
+        }
+        for (Item item : toReview) {
+            String answer = oneLine(item.answer());
+            md.append("- **").append(item.id()).append("** ").append(oneLine(item.question())).append(" — ")
+                    .append(String.join("; ", reviewReasons(item))).append('\n')
+                    .append("  > ").append(answer.length() > 300 ? answer.substring(0, 300) + "…" : answer).append('\n');
+        }
+    }
+
+    private static void groupRow(StringBuilder md, String name, Group group) {
+        md.append("| ").append(name)
+                .append(" | ").append(group.questions())
+                .append(" | ").append(group.answered())
+                .append(" | ").append(group.refusedByRetrieval())
+                .append(" | ").append(group.refusedByModel())
+                .append(" | ").append(group.failed())
+                .append(" | ").append(rate(group.faithful()))
+                .append(" | ").append(rate(group.relevant()))
+                .append(" | ").append(rate(group.correct()))
+                .append(" | ").append(rate(group.citationsValid())).append(" |\n");
+    }
+
+    /** Why an answer deserves a look: a wrong refusal, an answered unanswerable question, a failed check. */
+    private static List<String> reviewReasons(Item item) {
+        List<String> reasons = new ArrayList<>();
+        if (item.outcome() == Outcome.FAILED) {
+            reasons.add("generation failed");
+        }
+        else if (item.outcome() != Outcome.ANSWERED) {
+            if (item.answerable()) {
+                reasons.add("refused an answerable question (" + outcome(item.outcome()) + ")");
+            }
+            // A refusal is never judged: one that also cites sources may have answered anyway (e.g. with another
+            // product's settings), so it is shown rather than counted silently as a refusal.
+            if (item.outcome() == Outcome.REFUSED_BY_MODEL
+                    && !CitationValidator.check(item.answer(), item.sources()).cited().isEmpty()) {
+                reasons.add("refusal that also cites sources");
+            }
+        }
+        else {
+            if (!item.answerable()) {
+                reasons.add("answered an unanswerable question");
+            }
+            check(reasons, "faithfulness", item.faithful());
+            check(reasons, "relevancy", item.relevant());
+            check(reasons, "correctness", item.correct());
+            if (!item.citations().valid()) {
+                reasons.add(item.citations().cited().isEmpty() ? "no citations"
+                        : "citations out of range: " + item.citations().outOfRange().stream().map(String::valueOf)
+                                .collect(joining(", ")));
+            }
+        }
+        return reasons;
+    }
+
+    private static void check(List<String> reasons, String name, Verdict verdict) {
+        if (verdict == Verdict.FAIL) {
+            reasons.add(name + " failed");
+        }
+        else if (verdict == Verdict.ERROR) {
+            reasons.add(name + " judge error");
+        }
+    }
+
+    private static String outcome(Outcome outcome) {
+        return switch (outcome) {
+            case ANSWERED -> "answered";
+            case REFUSED_BY_RETRIEVAL -> "refused by retrieval";
+            case REFUSED_BY_MODEL -> "refused by model";
+            case FAILED -> "failed";
+        };
+    }
+
+    private static String verdict(Verdict verdict) {
+        if (verdict == null) {
+            return "–";
+        }
+        return switch (verdict) {
+            case PASS -> "✓";
+            case FAIL -> "✗";
+            case ERROR -> "error";
+        };
+    }
+
+    private static String rate(Rate rate) {
+        return rate.judged() == 0 ? "–" : rate.passed() + "/" + rate.judged();
+    }
+
+    private static String number(double value) {
+        return value == Math.rint(value) ? String.valueOf((long) value) : String.valueOf(value);
     }
 
     private static String decimal(double value) {

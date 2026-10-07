@@ -7,7 +7,16 @@ import com.learnings.rag.config.RagProperties;
 import com.learnings.rag.retrieval.RetrievalOptions;
 
 /** Everything one eval run measured; written as Markdown and JSON by {@link ReportWriter}. */
-public record EvalReport(Instant startedAt, RunInfo run, List<ConfigResult> configs) {
+public record EvalReport(Instant startedAt, RunInfo run, List<ConfigResult> configs, GenerationReport generation) {
+
+    /** A retrieval-only report. */
+    public EvalReport(Instant startedAt, RunInfo run, List<ConfigResult> configs) {
+        this(startedAt, run, configs, null);
+    }
+
+    public EvalReport withGeneration(GenerationReport generation) {
+        return new EvalReport(startedAt, run, configs, generation);
+    }
 
     /** What was measured against, so two reports can be compared honestly. */
     public record RunInfo(String goldenSet, String goldenSetSha256, int goldenItems, String embeddingModel,

@@ -1,6 +1,7 @@
 package com.learnings.rag.generation;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -34,6 +35,22 @@ public class AnswerService {
     public static final String ANSWER_FAILED =
             "Sorry, the answer could not be generated. The server log has the details.";
 
+    /** The refusal sentence the system prompt asks for (prompts/answer-system.st). */
+    public static final String PROMPT_REFUSAL = "I couldn't find this in the indexed documentation.";
+
+    private static final List<String> REFUSALS = List.of(
+            "i couldn't find this in the indexed documentation",
+            "i couldn't find anything about that in the indexed documentation");
+
+    /**
+     * Whether an answer is a refusal: the no-sources answer, or the prompt's refusal sentence anywhere in it (models
+     * sometimes prefix it, e.g. "Direct answer: I couldn't find this…"). Case and curly apostrophes don't matter.
+     */
+    public static boolean isRefusal(String answer) {
+        String normalized = answer.replace('\u2019', '\'').toLowerCase(Locale.ROOT);
+        return REFUSALS.stream().anyMatch(normalized::contains);
+    }
+
     private static final Logger log = LoggerFactory.getLogger(AnswerService.class);
 
     private final RetrievalPipeline retrievalPipeline;
@@ -48,9 +65,14 @@ public class AnswerService {
     }
 
     public Flux<ChatEvent> answer(String question) {
+        return answer(question, false);
+    }
+
+    /** @param debug also stream the retrieval trace, right after the sources */
+    public Flux<ChatEvent> answer(String question, boolean debug) {
         return Mono.fromCallable(() -> retrievalPipeline.retrieve(question))
                 .subscribeOn(Schedulers.boundedElastic()) // JDBC + embedding call are blocking
-                .flatMapMany(retrieval -> generate(question, retrieval))
+                .flatMapMany(retrieval -> generate(question, retrieval, debug))
                 .onErrorResume(error -> {
                     // Details (SQL errors, API error bodies) stay in the log; the browser gets a generic message.
                     log.error("Answering failed for question: {}", question, error);
@@ -58,13 +80,14 @@ public class AnswerService {
                 });
     }
 
-    private Flux<ChatEvent> generate(String question, RetrievalResult retrieval) {
+    private Flux<ChatEvent> generate(String question, RetrievalResult retrieval, boolean debug) {
         List<Document> documents = retrieval.documents();
         ChatEvent sources = ChatEvent.Sources.from(retrieval);
         long retrievalMillis = retrieval.trace().totalMillis();
+        Flux<ChatEvent> head = debug ? Flux.just(sources, new ChatEvent.Trace(retrieval.trace())) : Flux.just(sources);
         if (documents.isEmpty()) {
-            return Flux.just(sources, new ChatEvent.Token(NO_SOURCES_ANSWER),
-                    new ChatEvent.Done(null, null, retrievalMillis, 0));
+            return Flux.concat(head, Flux.just(new ChatEvent.Token(NO_SOURCES_ANSWER),
+                    new ChatEvent.Done(null, null, retrievalMillis, 0)));
         }
 
         AssembledPrompt prompt = promptAssembler.assemble(question, documents);
@@ -83,7 +106,7 @@ public class AnswerService {
         Mono<ChatEvent> done = Mono.fromSupplier(() -> ChatEvent.Done.of(usage.get(), retrievalMillis,
                 TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started.get())));
 
-        return Flux.concat(Mono.just(sources), tokens, done);
+        return Flux.concat(head, tokens, done);
     }
 
     private static String textOf(ChatResponse response) {

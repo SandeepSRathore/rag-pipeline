@@ -19,13 +19,18 @@
     <form id="ask-form">
       <textarea id="question" rows="3" maxlength="2000" required
                 placeholder="e.g. How do I configure the HNSW index for PGvector?  (⌘/Ctrl + Enter to ask)"></textarea>
-      <button type="submit" id="ask-button">Ask</button>
+      <div class="ask-row">
+        <label class="debug-toggle"><input type="checkbox" id="debug"> Debug trace</label>
+        <button type="submit" id="ask-button">Ask</button>
+      </div>
     </form>
     <div id="status" class="status" role="status"></div>
     <article id="answer" class="answer" aria-live="polite"></article>
     <div id="stats" class="stats"></div>
     <h2 id="sources-heading" hidden>Sources</h2>
     <ol id="sources" class="sources"></ol>
+    <h2 id="trace-heading" hidden>Retrieval trace</h2>
+    <div id="trace" class="trace"></div>
   </section>
 
   <section id="docs" class="panel">
