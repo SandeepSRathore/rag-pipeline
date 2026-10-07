@@ -419,13 +419,17 @@ data:{"promptTokens":1641,"completionTokens":382,"retrievalMillis":1099,"generat
 
 | Event | Payload | When |
 |---|---|---|
-| `sources` | `{"sources": [{n, sourcePath, title, breadcrumb, score, text, scores}]}` | Once, first. `score` is what the chunk was ranked by: the fused RRF score in hybrid mode, cosine similarity in vector mode. `scores` gives each retrieval stage's score (`vector`, `keyword`, `fusion`). `n` is the number the model cites. |
+| `sources` | `{"sources": [{n, sourcePath, title, breadcrumb, score, text, scores}]}` | Once, first. `score` is what the chunk was ranked by last: the reranker's 0–10 rating by default, otherwise the fused RRF score (hybrid) or cosine similarity (vector). `scores` gives each retrieval stage's score (`vector`, `keyword`, `fusion`, `rerank`). `n` is the number the model cites. |
+| `trace` | `{"trace": {"stages": [{name, elapsedMillis, hits, queries}], "totalMillis"}}` | Only when the request has `"debug": true`, right after `sources`. Every retrieval stage with its ranked hits and scores. |
 | `token` | `{"text": "…"}` | Any number of times. |
 | `done` | `{promptTokens, completionTokens, retrievalMillis, generationMillis}` | Once, last. The token counts are `null` when no model call was made. |
 | `error` | `{"message": "Sorry, the answer could not be generated. The server log has the details."}` | Replaces `done` if anything fails. |
 
 `EventSource` can't send a POST, so the UI reads the stream with `fetch` and a `ReadableStream` parser (see
 [`app.js`](src/main/resources/static/app.js)).
+
+Add `"debug": true` to the request body to get the `trace` event. The UI's **Debug trace** toggle does this and
+shows the trace under the sources.
 
 ### `POST /api/retrieve`
 

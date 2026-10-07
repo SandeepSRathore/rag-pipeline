@@ -65,9 +65,14 @@ public class AnswerService {
     }
 
     public Flux<ChatEvent> answer(String question) {
+        return answer(question, false);
+    }
+
+    /** @param debug also stream the retrieval trace, right after the sources */
+    public Flux<ChatEvent> answer(String question, boolean debug) {
         return Mono.fromCallable(() -> retrievalPipeline.retrieve(question))
                 .subscribeOn(Schedulers.boundedElastic()) // JDBC + embedding call are blocking
-                .flatMapMany(retrieval -> generate(question, retrieval))
+                .flatMapMany(retrieval -> generate(question, retrieval, debug))
                 .onErrorResume(error -> {
                     // Details (SQL errors, API error bodies) stay in the log; the browser gets a generic message.
                     log.error("Answering failed for question: {}", question, error);
@@ -75,13 +80,14 @@ public class AnswerService {
                 });
     }
 
-    private Flux<ChatEvent> generate(String question, RetrievalResult retrieval) {
+    private Flux<ChatEvent> generate(String question, RetrievalResult retrieval, boolean debug) {
         List<Document> documents = retrieval.documents();
         ChatEvent sources = ChatEvent.Sources.from(retrieval);
         long retrievalMillis = retrieval.trace().totalMillis();
+        Flux<ChatEvent> head = debug ? Flux.just(sources, new ChatEvent.Trace(retrieval.trace())) : Flux.just(sources);
         if (documents.isEmpty()) {
-            return Flux.just(sources, new ChatEvent.Token(NO_SOURCES_ANSWER),
-                    new ChatEvent.Done(null, null, retrievalMillis, 0));
+            return Flux.concat(head, Flux.just(new ChatEvent.Token(NO_SOURCES_ANSWER),
+                    new ChatEvent.Done(null, null, retrievalMillis, 0)));
         }
 
         AssembledPrompt prompt = promptAssembler.assemble(question, documents);
@@ -100,7 +106,7 @@ public class AnswerService {
         Mono<ChatEvent> done = Mono.fromSupplier(() -> ChatEvent.Done.of(usage.get(), retrievalMillis,
                 TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started.get())));
 
-        return Flux.concat(Mono.just(sources), tokens, done);
+        return Flux.concat(head, tokens, done);
     }
 
     private static String textOf(ChatResponse response) {

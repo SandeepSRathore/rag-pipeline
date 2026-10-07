@@ -156,4 +156,29 @@ class AnswerServiceTest {
         assertThat(new ClassPathResource("prompts/answer-system.st").getContentAsString(UTF_8))
                 .contains(AnswerService.PROMPT_REFUSAL);
     }
+
+    @Test
+    void debugStreamsTheTraceRightAfterTheSources() {
+        PipelineTrace trace = new PipelineTrace(List.of(new PipelineTrace.Stage("vector", 3, List.of())), 3);
+        when(pipeline.retrieve(anyString())).thenReturn(new RetrievalResult(oneChunk().documents(), trace));
+
+        StepVerifier.create(service(new StubChatModel("ok [1]")).answer("q", true))
+                .expectNextMatches(ChatEvent.Sources.class::isInstance)
+                .expectNext(new ChatEvent.Trace(trace))
+                .expectNext(new ChatEvent.Token("ok [1]"))
+                .expectNextMatches(ChatEvent.Done.class::isInstance)
+                .verifyComplete();
+    }
+
+    @Test
+    void debugStreamsTheTraceEvenWhenNothingWasFound() {
+        PipelineTrace trace = new PipelineTrace(List.of(new PipelineTrace.Stage("rerank", 900, List.of())), 900);
+        when(pipeline.retrieve(anyString())).thenReturn(new RetrievalResult(List.of(), trace));
+
+        StepVerifier.create(service(new StubChatModel("never")).answer("sourdough?", true))
+                .expectNext(new ChatEvent.Sources(List.of()), new ChatEvent.Trace(trace),
+                        new ChatEvent.Token(AnswerService.NO_SOURCES_ANSWER))
+                .expectNextMatches(ChatEvent.Done.class::isInstance)
+                .verifyComplete();
+    }
 }

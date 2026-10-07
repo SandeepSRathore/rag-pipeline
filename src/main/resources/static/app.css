@@ -48,6 +48,13 @@ table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 14p
 th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); }
 td.num { text-align: right; }
 button.link { border: none; background: none; color: var(--accent); padding: 0; }
+.ask-row { display: flex; gap: 14px; align-items: center; }
+.debug-toggle { color: var(--muted); font-size: 13px; display: flex; gap: 6px; align-items: center; }
+.trace details { border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; margin-bottom: 8px;
+                 background: var(--surface); }
+.trace summary { cursor: pointer; font-size: 14px; }
+.trace-hits, .trace-queries { font-size: 13px; margin: 8px 0 4px; padding-left: 22px; }
+.trace-hits li { display: flex; justify-content: space-between; gap: 12px; }
 @media (max-width: 600px) {
   header { flex-direction: column; align-items: flex-start; }
   th:nth-child(5), td:nth-child(5) { display: none; }
