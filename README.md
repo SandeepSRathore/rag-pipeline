@@ -42,8 +42,8 @@ multi-query, reranking) gets added only after an evaluation harness can measure 
 | M4 | Keyword search (`tsvector`) plus reciprocal rank fusion: hybrid retrieval | ✅ done (hybrid is the default; see Evaluation) |
 | M5 | Query rewriting and multi-query expansion, parallel retrieval | ✅ done (both measured; off by default) |
 | M6 | LLM reranker with a minimum score, so off-topic questions are refused | ✅ done (on by default, min-score 6; see Evaluation) |
-| M7 | Generation evals (faithfulness, relevancy, citation validity), `/api/retrieve`, debug panel | next |
-| M8 | *(optional)* Local `ollama` profile | planned |
+| M7 | Generation evals (faithfulness, relevancy, citation validity), `/api/retrieve`, debug panel | ✅ done (partial answer baseline; see Evaluation) |
+| M8 | *(optional)* Local `ollama` profile | next (optional) |
 
 The current pipeline is the **naive baseline** that M3's evaluation will measure. Every later milestone has to beat it on
 the same golden set.
@@ -131,6 +131,18 @@ There are two guards:
    model to say *"I couldn't find this in the indexed documentation."* instead of answering from general knowledge.
    - This guards the questions the reranker lets through. For example, a question about a provider the docs don't
      cover can look answered by another provider's settings.
+
+### Debug trace
+
+Tick **Debug trace** next to the Ask button to see how the sources were found. Under the sources, a **Retrieval
+trace** lists every stage:
+- vector and keyword search, fusion and reranking, plus any rewrite, expansion or per-query stages;
+- each stage's time and the chunks it returned, with their scores, including the reranker's 0–10 rating of all 20
+  candidates;
+- the wall-clock total.
+
+A failed rerank shows as `rerank failed · fused order kept`. The same trace is available without an answer from
+`POST /api/retrieve`.
 
 ### Manage documents
 
@@ -643,6 +655,29 @@ Hybrid retrieval stays the default (M4), and rewriting and multi-query stay off 
 sweeps and the earlier milestones' results are in [`eval/README.md`](eval/README.md#m6-reranking-and-refusals). The
 golden set is AI-reviewed.
 
+The answers themselves are measured too (M7). The generation flag sends every question through the chat path and has
+`gpt-4.1-mini` judge each answer with Spring AI's `FactCheckingEvaluator` and `RelevancyEvaluator`:
+
+```bash
+./mvnw spring-boot:run -Dspring-boot.run.profiles=eval -Dspring-boot.run.arguments=--rag.eval.generation=true
+```
+
+**M7 answer quality (partial, 2026-10-07):**
+
+| Questions | Count | Answered | Refused by retrieval | Refused by model | Failed | Faithful | Relevant | Correct | Citations valid |
+|---|---|---|---|---|---|---|---|---|---|
+| answerable | 63 | 55 | 0 | 0 | 8 | 54/54 | 54/54 | 48/54 | 55/55 |
+| unanswerable | 10 | 0 | 0 | 0 | 10 | – | – | – | – |
+
+The run stopped being useful at question 55, when the OpenAI organization reached its spend limit. The 18 failed
+questions are API errors, and they include all of the unanswerable ones.
+- **What the 55 answers show:** each was faithful to its sources, relevant and correctly cited.
+- **Correctness:** 5 of the 6 failures miss a secondary detail of the reference answer. Only `q32` is a genuinely
+  incomplete answer.
+- **Still unmeasured:** whether the model refuses the questions the reranker lets through.
+
+Details are in [`eval/README.md`](eval/README.md#m7-answer-quality-partial-baseline).
+
 ## Design decisions
 
 The full reasoning is in the design spec, including its **Amendments** section. The decisions that most shape the code:
@@ -664,6 +699,11 @@ The full reasoning is in the design spec, including its **Amendments** section. 
 - **No authentication, authorization or rate limiting.** These are intentionally out of scope for this learning project,
   and the app binds to `127.0.0.1`.
 - **Ingestion is synchronous:** a first full sync keeps the request open for about 90 s.
+- **The answer judge is an LLM, too.**
+  - Each check is one yes/no call to `gpt-4.1-mini`.
+  - Spring AI counts only an exact "yes" as a pass, so a decorated "Yes." would be a fail.
+  - Correctness needs the whole reference answer, so it also fails an answer that omits a minor detail.
+  - Refusals are recognised by their "I couldn't find…" sentence.
 - **The reranker is an LLM judge.**
   - Its ratings vary between runs: MRR@10 was 0.976 and 0.952 in two identical eval runs.
   - It can rate another product's settings as an answer. In the eval, questions about watsonx and Couchbase got
@@ -704,7 +744,6 @@ previous configuration.
      reuse the chunk's wording.
   2. A human reviews them into `eval/golden-set.json`.
   3. `EvalRunner` (`eval` profile) reports hit@5, recall@5, MRR@10 and p50/p95 latency.
-- **M7:** faithfulness and relevancy evaluators, citation validity, `POST /api/retrieve` and a debug panel in the UI.
 - **M8 (optional):** an `ollama` profile with local models.
 
 ## Project layout

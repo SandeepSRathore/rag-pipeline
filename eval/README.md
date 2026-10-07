@@ -109,6 +109,50 @@ hit@5, recall@5, MRR@10 and latency cover only the answerable questions.
   the corpus doesn't answer them. They measure refusals; hit@5, recall@5, MRR@10 and latency still cover the 63
   answerable questions, so the numbers stay comparable with v3.
 
+## M7: answer quality (partial baseline)
+
+Recorded on 2026-10-07 from `eval/reports/2026-10-07T05-19-16Z.md`. Answers come from `gpt-5-mini` through the chat
+path with its defaults (hybrid, top 5, rerank on, min-score 6), and `gpt-4.1-mini` judges them.
+
+**The run is partial.** At question 55 the OpenAI organization reached its configured spend limit (`429: Your
+organization has reached its configured enforced spend limit`), and every later call failed.
+- The 18 `Failed` questions are API failures, not pipeline results: `c03`–`c10` and all ten unanswerable `u01`–`u10`.
+- `c02`'s three checks hit the limit too, so they count as judge errors.
+- The maintainer chose to record this run instead of re-running it.
+
+| Questions | Count | Answered | Refused by retrieval | Refused by model | Failed | Faithful | Relevant | Correct | Citations valid |
+|---|---|---|---|---|---|---|---|---|---|
+| answerable | 63 | 55 | 0 | 0 | 8 | 54/54 | 54/54 | 48/54 | 55/55 |
+| unanswerable | 10 | 0 | 0 | 0 | 10 | – | – | – | – |
+
+Faithful, Relevant and Correct are judge verdicts on the answered questions; Correct needs a reference answer, so it covers answerable questions only. p50 generation: 6104 ms. Judge errors (not counted as fails): 3.
+
+What the numbers show (55 answerable questions answered):
+
+- **Every completed answer was grounded and cited:**
+  - faithful on 54/54 and relevant on 54/54;
+  - valid citations on 55/55;
+  - no answerable question refused, by retrieval or by the model.
+- **Correctness (48/54) mostly measures completeness.** The check asks whether the whole reference answer is contained
+  in the answer, so one missing secondary detail fails it:
+  - `q02` names both replacement interfaces but not the renamed chain types;
+  - `i08` explains `-1` but not the default of 40;
+  - `q18` gives the property but not the WebFlux starter;
+  - `q30` leaves out the reference's last sentence (the retriever never modifies the store);
+  - `q12` says `EmbeddingResponse` *implements* `ModelResponse`, where the reference says *extends*, and the judge
+    counted that as unsupported;
+  - only `q32` (Neo4j prerequisites) is a genuinely incomplete answer. Retrieval finds the right page but not the
+    prerequisites section, as in every run since M3.
+- **Not measured yet:**
+  - the answer-side refusal, because all ten unanswerable questions failed at the API. So whether the model refuses
+    the watsonx and Couchbase questions that M6's reranker lets through is still open;
+  - 8 of the 10 conversational questions.
+- **The cost of an answer:** p50 generation was 6.1 s, on top of about 4 s of retrieval.
+- **Caveats:**
+  - each check is one yes/no LLM call, and the judge itself has not been validated;
+  - the golden set is AI-written and AI-reviewed;
+  - this is one partial run.
+
 ## M6: reranking and refusals
 
 Recorded on 2026-10-07 from `eval/reports/2026-10-07T03-58-23Z.md` (run 1; golden set v4: 63 answerable and 10
