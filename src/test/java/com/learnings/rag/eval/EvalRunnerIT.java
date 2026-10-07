@@ -163,4 +163,22 @@ class EvalRunnerIT {
                 .singleElement().satisfies(config -> assertThat(config.items().getFirst().queries())
                         .containsExactly("Stub answer [1]."));
     }
+
+    @Test
+    void unanswerableQuestionsAreCountedAsRefusalsNotScored() {
+        GoldenItem answerable = item("q01", new ExpectedSource("pgvector.adoc", ""));
+        // No word in common with the fixtures: keyword search finds nothing and the fake embeddings score cosine 0.
+        GoldenItem unanswerable = new GoldenItem("u01", "xylophone", List.of(), null, null,
+                List.of(GoldenItem.UNANSWERABLE));
+
+        EvalReport report = runner.run(goldenSet(answerable, unanswerable), EvalConfig.all(properties));
+
+        // Rewriting searches the stub model's reply ("Stub answer [1].") instead of the question, so it is left out.
+        assertThat(report.configs()).filteredOn(config -> !config.options().rewrite()).isNotEmpty()
+                .allSatisfy(config -> {
+                    assertThat(config.summary().items()).isEqualTo(1);
+                    assertThat(config.refusals()).isEqualTo(new EvalReport.Refusals(1, 1, 0));
+                    assertThat(config.items().get(1).score()).isNull();
+                });
+    }
 }

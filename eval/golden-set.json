@@ -867,5 +867,105 @@
     "tags": [
       "conversational"
     ]
+  },
+  {
+    "id": "u01",
+    "question": "How long should I proof sourdough bread dough before baking it?",
+    "expectedSources": [],
+    "referenceAnswer": "The indexed documentation does not cover this.",
+    "sourceExcerpt": null,
+    "tags": [
+      "unanswerable"
+    ]
+  },
+  {
+    "id": "u02",
+    "question": "What's a good warm-up routine before running a 10 km race?",
+    "expectedSources": [],
+    "referenceAnswer": "The indexed documentation does not cover this.",
+    "sourceExcerpt": null,
+    "tags": [
+      "unanswerable"
+    ]
+  },
+  {
+    "id": "u03",
+    "question": "How do I get a red wine stain out of a wool carpet?",
+    "expectedSources": [],
+    "referenceAnswer": "The indexed documentation does not cover this.",
+    "sourceExcerpt": null,
+    "tags": [
+      "unanswerable"
+    ]
+  },
+  {
+    "id": "u04",
+    "question": "Which properties configure the IBM watsonx.ai chat model in Spring AI?",
+    "expectedSources": [],
+    "referenceAnswer": "The indexed documentation does not cover this.",
+    "sourceExcerpt": null,
+    "tags": [
+      "unanswerable"
+    ]
+  },
+  {
+    "id": "u05",
+    "question": "How do I set up the Couchbase vector store, and which bucket and scope properties does it need?",
+    "expectedSources": [],
+    "referenceAnswer": "The indexed documentation does not cover this.",
+    "sourceExcerpt": null,
+    "tags": [
+      "unanswerable"
+    ]
+  },
+  {
+    "id": "u06",
+    "question": "Which properties set the Pinecone API key and index name for the Pinecone vector store?",
+    "expectedSources": [],
+    "referenceAnswer": "The indexed documentation does not cover this.",
+    "sourceExcerpt": null,
+    "tags": [
+      "unanswerable"
+    ]
+  },
+  {
+    "id": "u07",
+    "question": "How do I fine-tune an OpenAI model on my own training data from a Spring AI app?",
+    "expectedSources": [],
+    "referenceAnswer": "The indexed documentation does not cover this.",
+    "sourceExcerpt": null,
+    "tags": [
+      "unanswerable"
+    ]
+  },
+  {
+    "id": "u08",
+    "question": "How do I define a Spring Batch job that reads a CSV file and writes the rows to a database?",
+    "expectedSources": [],
+    "referenceAnswer": "The indexed documentation does not cover this.",
+    "sourceExcerpt": null,
+    "tags": [
+      "unanswerable"
+    ]
+  },
+  {
+    "id": "u09",
+    "question": "How do I enable Hibernate's second-level cache with Ehcache in a Spring Boot app?",
+    "expectedSources": [],
+    "referenceAnswer": "The indexed documentation does not cover this.",
+    "sourceExcerpt": null,
+    "tags": [
+      "unanswerable"
+    ]
+  },
+  {
+    "id": "u10",
+    "question": "How do I schedule a nightly job with a cron expression that re-embeds documents that changed?",
+    "expectedSources": [],
+    "referenceAnswer": "The indexed documentation does not cover this.",
+    "sourceExcerpt": null,
+    "tags": [
+      "unanswerable"
+    ]
   }
 ]

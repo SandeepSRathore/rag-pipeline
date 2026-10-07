@@ -16,8 +16,10 @@ import org.springframework.stereotype.Component;
 import com.learnings.rag.config.RagProperties;
 import com.learnings.rag.eval.EvalReport.ConfigResult;
 import com.learnings.rag.eval.EvalReport.ItemResult;
+import com.learnings.rag.eval.EvalReport.Refusals;
 import com.learnings.rag.eval.EvalReport.RunInfo;
 import com.learnings.rag.eval.EvalReport.TagSummary;
+import com.learnings.rag.eval.RetrievalMetrics.RankedSource;
 
 import tools.jackson.databind.SerializationFeature;
 import tools.jackson.databind.json.JsonMapper;
@@ -71,16 +73,22 @@ public class ReportWriter {
                     .append("numbers are not comparable with a corpus-only run.\n\n");
         }
 
-        md.append("## Summary\n\n| Config | hit@5 | recall@5 | MRR@10 | p50 ms | p95 ms |\n|---|---|---|---|---|---|\n");
+        md.append("## Summary\n\n| Config | hit@5 | recall@5 | MRR@10 | refused: unanswerable | refused: answerable "
+                + "| p50 ms | p95 ms |\n|---|---|---|---|---|---|---|---|\n");
         for (ConfigResult config : report.configs()) {
             RetrievalMetrics.Summary summary = config.summary();
             md.append("| ").append(config.name())
                     .append(" | ").append(decimal(summary.hitAt5()))
                     .append(" | ").append(decimal(summary.recallAt5()))
                     .append(" | ").append(decimal(summary.mrrAt10()))
+                    .append(" | ").append(refusedUnanswerable(config.refusals()))
+                    .append(" | ").append(config.refusals().answerableRefused())
                     .append(" | ").append(summary.p50Millis())
                     .append(" | ").append(summary.p95Millis()).append(" |\n");
         }
+        md.append("\nAnswerable questions: ").append(report.configs().getFirst().summary().items())
+                .append("; hit@5, recall@5, MRR@10 and latency cover these. *Refused* = retrieval came back empty, ")
+                .append("so chat answers \"I couldn't find…\" without calling the model.\n");
 
         md.append("\nQueries searched per question (average): ").append(report.configs().stream()
                 .map(config -> {
@@ -112,7 +120,7 @@ public class ReportWriter {
         for (ConfigResult config : report.configs()) {
             md.append("\n## ").append(config.name()).append(": per question\n\n")
                     .append("| Id | First relevant rank | hit@5 | recall@5 | Question |\n|---|---|---|---|---|\n");
-            for (ItemResult item : config.items()) {
+            for (ItemResult item : config.items().stream().filter(ItemResult::answerable).toList()) {
                 Integer rank = item.score().firstRelevantRank();
                 md.append("| ").append(item.id())
                         .append(" | ").append(rank == null ? "–" : rank)
@@ -120,7 +128,7 @@ public class ReportWriter {
                         .append(" | ").append(decimal(item.score().recallAt5()))
                         .append(" | ").append(cell(item.question())).append(" |\n");
             }
-            List<ItemResult> misses = config.items().stream()
+            List<ItemResult> misses = config.items().stream().filter(ItemResult::answerable)
                     .filter(item -> item.score().firstRelevantRank() == null)
                     .toList();
             md.append("\n### Misses: no relevant chunk in the top ").append(RetrievalMetrics.MRR_K).append("\n\n");
@@ -138,8 +146,26 @@ public class ReportWriter {
                                 .collect(joining("; ")))
                         .append('\n');
             }
+
+            List<ItemResult> unanswerable = config.items().stream().filter(item -> !item.answerable()).toList();
+            if (!unanswerable.isEmpty()) {
+                md.append("\n### Unanswerable: retrieval should come back empty\n\n")
+                        .append("| Id | Refused | Top chunk | Score | Question |\n|---|---|---|---|---|\n");
+                for (ItemResult item : unanswerable) {
+                    RankedSource top = item.retrieved().isEmpty() ? null : item.retrieved().getFirst();
+                    md.append("| ").append(item.id())
+                            .append(" | ").append(top == null ? "✓" : "✗")
+                            .append(" | ").append(top == null ? "–" : cell(label(top.sourcePath(), top.breadcrumb())))
+                            .append(" | ").append(top == null || top.score() == null ? "–" : decimal(top.score()))
+                            .append(" | ").append(cell(item.question())).append(" |\n");
+                }
+            }
         }
         return md.toString();
+    }
+
+    private static String refusedUnanswerable(Refusals refusals) {
+        return refusals.unanswerable() == 0 ? "–" : refusals.unanswerableRefused() + "/" + refusals.unanswerable();
     }
 
     private static String decimal(double value) {

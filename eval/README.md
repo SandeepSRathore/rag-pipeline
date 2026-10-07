@@ -45,7 +45,8 @@ For every item:
 Save the result as `eval/golden-set.json` and commit it. The eval rejects the file, listing the item ids, if an item has:
 - a missing or duplicate `id`;
 - an empty question;
-- no `expectedSources`;
+- no `expectedSources`, unless it is tagged `unanswerable`. An unanswerable item must have `"expectedSources": []`,
+  and you should grep the corpus to confirm that nothing answers it;
 - a source without `sectionPrefix` (for example because of a typo in the field name);
 - an expected source that matches no indexed chunk: a page that isn't indexed or has no chunks, or a section that
   doesn't exist, for example because `›` was typed as `>`.
@@ -69,7 +70,11 @@ This writes `eval/reports/<UTC time>.md` and `.json` (gitignored). Each report r
 | hit@5 | Share of questions with at least one relevant chunk in the top 5, which is what chat hands the model. |
 | recall@5 | Per question, the share of its expected sources found in the top 5, averaged. This is standard IR recall: every listed section counts as a relevant answer location. |
 | MRR@10 | Mean of 1 / rank of the first relevant chunk within the top 10 (0 if none). |
-| p50 / p95 | Retrieval latency per question in ms, including the query-embedding call (nearest-rank percentiles). |
+| refused: unanswerable | Unanswerable questions whose retrieval came back empty, out of all unanswerable ones. Chat then answers "I couldn't find…" without calling the model. Higher is better. |
+| refused: answerable | Answerable questions whose retrieval came back empty (false refusals). They also count as misses in hit@5. |
+| p50 / p95 | Retrieval latency per answerable question in ms, including the query-embedding call (nearest-rank percentiles). |
+
+hit@5, recall@5, MRR@10 and latency cover only the answerable questions.
 
 ## Golden set versions
 
@@ -81,6 +86,11 @@ This writes `eval/reports/<UTC time>.md` and `.json` (gitignored). Each report r
 - **v3 (M5, 63 items):** adds `c01`–`c10`. Each is a chatty, vague rephrasing of a verified item (typos, filler,
   symptoms instead of terms), with that item's labels and `"tags": ["conversational"]`. They are written by Claude to
   test query rewriting and multi-query expansion, which target exactly this kind of question.
+- **v4 (M6, 73 items):** adds `u01`–`u10`, questions the corpus does **not** answer, with `"expectedSources": []` and
+  `"tags": ["unanswerable"]`. Three are off-topic (sourdough, running, carpet stains). Seven are near the domain:
+  providers, stores and Spring projects that the 52 pages don't cover. They were written by Claude, and a grep confirmed
+  the corpus doesn't answer them. They measure refusals; hit@5, recall@5, MRR@10 and latency still cover the 63
+  answerable questions, so the numbers stay comparable with v3.
 
 ## M5: rewriting and multi-query
 

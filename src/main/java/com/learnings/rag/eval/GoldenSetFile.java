@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 import org.springframework.stereotype.Component;
@@ -110,8 +111,19 @@ public class GoldenSetFile {
             if (item.tags().stream().anyMatch(tag -> tag == null || tag.isBlank())) {
                 problems.add(label + ": blank tag");
             }
-            if (item.expectedSources() == null || item.expectedSources().isEmpty()) {
+            if (item.expectedSources() == null) {
                 problems.add(label + ": no expectedSources");
+                continue;
+            }
+            if (!item.answerable()) {
+                if (!item.expectedSources().isEmpty()) {
+                    problems.add(label + ": an unanswerable item must have no expectedSources");
+                }
+                continue;
+            }
+            if (item.expectedSources().isEmpty()) {
+                problems.add(label + ": no expectedSources (tag it \"" + GoldenItem.UNANSWERABLE
+                        + "\" if the docs don't answer it)");
                 continue;
             }
             Set<ExpectedSource> seen = new HashSet<>();
@@ -127,6 +139,9 @@ public class GoldenSetFile {
                     problems.add(label + ": duplicate expected source " + source.sourcePath());
                 }
             }
+        }
+        if (items.stream().filter(Objects::nonNull).noneMatch(GoldenItem::answerable)) {
+            problems.add("the set has no answerable item; hit@5, recall@5 and MRR@10 need at least one");
         }
         return problems;
     }

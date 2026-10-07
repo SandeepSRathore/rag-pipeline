@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import com.learnings.rag.config.RagProperties;
 import com.learnings.rag.eval.EvalReport.ConfigResult;
 import com.learnings.rag.eval.EvalReport.ItemResult;
+import com.learnings.rag.eval.EvalReport.Refusals;
 import com.learnings.rag.eval.EvalReport.RunInfo;
 import com.learnings.rag.eval.EvalReport.TagSummary;
 import com.learnings.rag.eval.RetrievalMetrics.RankedSource;
@@ -93,15 +94,30 @@ public class EvalRunner {
             List<RankedSource> ranked = retrieval.documents().stream().map(EvalRunner::ranked).toList();
             List<String> queries = retrieval.trace().queries().isEmpty() ? List.of(item.question())
                     : retrieval.trace().queries();
-            results.add(new ItemResult(item.id(), item.question(), item.expectedSources(),
-                    RetrievalMetrics.score(item.expectedSources(), ranked), millis, ranked, queries));
+            // An unanswerable question has nothing to rank against: it is judged by whether retrieval came back empty.
+            RetrievalMetrics.ItemScore score = item.answerable()
+                    ? RetrievalMetrics.score(item.expectedSources(), ranked) : null;
+            results.add(new ItemResult(item.id(), item.question(), item.expectedSources(), score, millis, ranked,
+                    queries));
+        }
+        List<GoldenItem> answerableItems = new ArrayList<>();
+        List<ItemResult> answerable = new ArrayList<>();
+        for (int i = 0; i < items.size(); i++) {
+            if (items.get(i).answerable()) {
+                answerableItems.add(items.get(i));
+                answerable.add(results.get(i));
+            }
         }
         RetrievalMetrics.Summary summary = RetrievalMetrics.summarize(
-                results.stream().map(ItemResult::score).toList(),
-                results.stream().map(ItemResult::latencyMillis).toList());
-        log.info("{}: hit@5 {} · recall@5 {} · MRR@10 {} · p50 {} ms · p95 {} ms", config.name(),
-                summary.hitAt5(), summary.recallAt5(), summary.mrrAt10(), summary.p50Millis(), summary.p95Millis());
-        return new ConfigResult(config.name(), config.options(), summary, summarizeByTag(items, results), results);
+                answerable.stream().map(ItemResult::score).toList(),
+                answerable.stream().map(ItemResult::latencyMillis).toList());
+        Refusals refusals = Refusals.of(results);
+        log.info("{}: hit@5 {} · recall@5 {} · MRR@10 {} · p50 {} ms · p95 {} ms · refused {}/{} unanswerable, {} answerable",
+                config.name(), summary.hitAt5(), summary.recallAt5(), summary.mrrAt10(), summary.p50Millis(),
+                summary.p95Millis(), refusals.unanswerableRefused(), refusals.unanswerable(),
+                refusals.answerableRefused());
+        return new ConfigResult(config.name(), config.options(), summary,
+                summarizeByTag(answerableItems, answerable), refusals, results);
     }
 
     /** One summary per tag, plus "untagged" for the rest, in tag order; empty when no item is tagged. */
