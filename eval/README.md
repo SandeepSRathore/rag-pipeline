@@ -115,6 +115,9 @@ unanswerable questions; reranker `gpt-4.1-mini` at temperature 0):
 
 Answerable questions: 63; hit@5, recall@5, MRR@10 and latency cover these. *Refused* = retrieval came back empty, so chat answers "I couldn't find…" without calling the model.
 
+The rerank rows ran at min-score 0, so they refuse nothing. The sweeps below show what each minimum would have
+scored.
+
 Queries searched per question (average): vector 1.0 · keyword 1.0 · hybrid 1.0 · hybrid+multiquery 4.0 (expansion fell back on 0) · hybrid+rerank 1.0 · hybrid+multiquery+rerank 4.0 (expansion fell back on 0)
 
 Rerank fell back to the fused order (questions): hybrid+rerank 0 · hybrid+multiquery+rerank 0
@@ -198,11 +201,12 @@ unanswerable questions and 0 answerable ones.
 What the numbers show:
 
 - **Reranking fixed the order, not the coverage.**
-  - It moved 8 answerable questions up and none down: `q10` and `h03` from rank 4 to 1, and six others from rank 2
-    to 1.
-  - MRR@10 rose on every tag: conversational 0.850 → 0.950, identifier 0.962 → 1.000, untagged 0.900 → 0.975.
-  - hit@5 stays at 0.984. The one miss is still `q32`: every retrieved chunk comes from the right page (Neo4j, rated
-    9–10), but none from the expected section.
+  - In run 1 it moved 8 answerable questions up and none down: `q10` and `h03` from rank 4 to 1, and six others from
+    rank 2 to 1. In run 2, 6 moved up and one (`c03`) moved down, from rank 1 to 2.
+  - In run 1, MRR@10 rose on every tag: conversational 0.850 → 0.950, identifier 0.962 → 1.000, untagged
+    0.900 → 0.975. In run 2, conversational reached 0.900 and untagged 0.963, while identifier stayed at 0.962.
+  - hit@5 stays at 0.984. The one miss is still `q32`: its top three chunks come from the right page (Neo4j, rated
+    9–10), but none of the top 10 from the expected section.
 - **Refusals: 8 of 10 at min-score 6, with no false refusals in either run.**
   - The off-topic questions (`u01`–`u03`) and the Hibernate one (`u09`) get top ratings of 0. Pinecone (`u06`) gets 1,
     the cron job (`u10`) 3, and fine-tuning (`u07`) and Spring Batch (`u08`) 5.
@@ -212,13 +216,15 @@ What the numbers show:
     it.
   - **The margin is narrow.** The lowest top rating of an answerable question is 7 (`i03`, in both runs), while
     refused near-domain questions reach 5. From 8 up, answerable questions start being refused.
+  - **These refusal numbers are in-sample.** Min-score 6 was chosen on these same questions, and run 2 asked them again.
+    On new questions, expect some false refusals and more unanswerable questions getting through.
 - **The cost is about 3 s per question.**
   - p50 retrieval goes from 0.47 s to 3.8 s (3.6 s in run 2). One `gpt-4.1-mini` call reads about 4,000 tokens of
     passages and writes 20 ratings.
   - Chat now shows its sources after about 4 s instead of 0.5 s.
   - A refused question costs the same retrieval time but no answer-model call.
 - **Reranking partly rescues multi-query.** It lifts MRR@10 from 0.829 to 0.937 (0.850 to 0.944 in run 2), but stays
-  below rerank alone and costs another 1.3 s. Multi-query stays off.
+  below rerank alone and costs another 1.3–1.7 s. Multi-query stays off.
 - **Run-to-run variance is visible.**
   - `hybrid+rerank`'s MRR@10 was 0.976 in run 1 and 0.952 in run 2.
   - Multi-query alone scored 0.829 and 0.850, and 0.842 in M5.

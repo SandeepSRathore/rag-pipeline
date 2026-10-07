@@ -122,8 +122,8 @@ There are two guards:
    - If no retrieved chunk is rated at least 6 out of 10, the app sends no sources and doesn't call the model. It
      answers: *"I couldn't find anything about that in the indexed documentation. Try rephrasing, or ingest the
      relevant documents first."*
-   - In the M6 eval, this refused 8 of 10 unanswerable questions and no answerable one. An empty index gives the same
-     answer.
+   - In the M6 eval, this refused 8 of 10 unanswerable questions and no answerable one. The minimum was chosen on those
+     same questions, so expect somewhat worse on new ones. An empty index gives the same answer.
 
    ![An off-topic question is refused before the answer model is called: no sources, generation 0 ms](docs/images/03-not-in-the-docs.png)
 
@@ -491,7 +491,7 @@ variables or `--name=value`.
 | `rag.retrieval.query-variants` | `0` | Extra phrasings searched in parallel and fused across queries (0 = off). Off: it lowered MRR@10 in the M5 eval. |
 | `rag.retrieval.utility-model` | `gpt-4.1-mini` | Model for rewriting, expansion and reranking. It must accept temperature 0, which gpt-5 models do not. |
 | `rag.retrieval.rerank.enabled` | `true` | Rate the candidates 0–10 with the utility model and keep the best top-k. On: it raised MRR@10 from 0.905 to 0.976 in the M6 eval, at about 3 s per question. |
-| `rag.retrieval.rerank.min-score` | `6` | Candidates rated below this are dropped; if none is left, the app answers "I couldn't find…" without calling the answer model. Chosen by the M6 rule: it refused 8 of 10 unanswerable questions, with no false refusals. |
+| `rag.retrieval.rerank.min-score` | `6` | Candidates rated below this are dropped; if none is left, the app answers "I couldn't find…" without calling the answer model. Chosen by the M6 rule on the eval's own questions: there it refused 8 of 10 unanswerable questions, with no false refusals (in-sample, so optimistic). |
 | `server.port` / `server.address` | `8081` / `127.0.0.1` | Loopback only, because there is no authentication. |
 | `spring.servlet.multipart.max-file-size` | `20MB` | Upload limit. |
 | `spring.mvc.async.request-timeout` | `5m` | Tomcat's 30-second default would cut off long streamed answers. |
@@ -608,6 +608,10 @@ run confirmed them:
 - MRR@10 rises from 0.905 to 0.976 (0.952 in run 2);
 - 8 of 10 unanswerable questions are refused, with no false refusals;
 - retrieval takes about 3 s longer.
+
+The rerank rows in the table ran at min-score 0, so they refuse nothing. The refusal figures come from the eval's
+min-score sweep at 6. That minimum was chosen on these same questions, so the refusal figures are in-sample and
+probably optimistic: the weakest answerable question's best chunk was rated 7, one point above the minimum.
 
 Hybrid retrieval stays the default (M4), and rewriting and multi-query stay off (M5). The details, the min-score
 sweeps and the earlier milestones' results are in [`eval/README.md`](eval/README.md#m6-reranking-and-refusals). The
