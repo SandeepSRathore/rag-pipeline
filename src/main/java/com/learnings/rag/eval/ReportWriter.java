@@ -27,6 +27,7 @@ import com.learnings.rag.eval.GenerationReport.Item;
 import com.learnings.rag.eval.GenerationReport.Outcome;
 import com.learnings.rag.eval.GenerationReport.Rate;
 import com.learnings.rag.eval.RetrievalMetrics.RankedSource;
+import com.learnings.rag.generation.CitationValidator;
 import com.learnings.rag.retrieval.RetrievalOptions;
 
 import tools.jackson.databind.SerializationFeature;
@@ -273,6 +274,12 @@ public class ReportWriter {
         else if (item.outcome() != Outcome.ANSWERED) {
             if (item.answerable()) {
                 reasons.add("refused an answerable question (" + outcome(item.outcome()) + ")");
+            }
+            // A refusal is never judged: one that also cites sources may have answered anyway (e.g. with another
+            // product's settings), so it is shown rather than counted silently as a refusal.
+            if (item.outcome() == Outcome.REFUSED_BY_MODEL
+                    && !CitationValidator.check(item.answer(), item.sources()).cited().isEmpty()) {
+                reasons.add("refusal that also cites sources");
             }
         }
         else {

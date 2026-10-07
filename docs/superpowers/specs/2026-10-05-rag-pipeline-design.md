@@ -402,7 +402,8 @@ Run TDD inside each milestone (superpowers:test-driven-development). Pause at M3
       55. The maintainer chose to record the partial run.
       - Answerable: 55 of 63 answered and 8 failed at the API; 0 refused by retrieval or by the model.
       - Answered: faithful 54/54, relevant 54/54, correct 48/54, citations valid 55/55, 3 judge errors (spend limit).
-      - Five of the six correctness fails omit a secondary detail of the reference answer; `q32` is a retrieval miss.
+      - Four of the six correctness fails omit a secondary detail of the reference answer, `q12` is a wording
+        disagreement ("implements" vs "extends"), and `q32` is a retrieval miss.
       - Unanswerable: all 10 failed at the API, so the answer-side refusal is not measured yet.
       - p50 generation: 6.1 s.
 40. **`CitationValidator`:**

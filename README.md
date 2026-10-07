@@ -42,7 +42,7 @@ multi-query, reranking) gets added only after an evaluation harness can measure 
 | M4 | Keyword search (`tsvector`) plus reciprocal rank fusion: hybrid retrieval | ✅ done (hybrid is the default; see Evaluation) |
 | M5 | Query rewriting and multi-query expansion, parallel retrieval | ✅ done (both measured; off by default) |
 | M6 | LLM reranker with a minimum score, so off-topic questions are refused | ✅ done (on by default, min-score 6; see Evaluation) |
-| M7 | Generation evals (faithfulness, relevancy, citation validity), `/api/retrieve`, debug panel | ✅ done (partial answer baseline; see Evaluation) |
+| M7 | Generation evals (faithfulness, relevancy, citation validity), `/api/retrieve`, debug panel | ✅ done (partial answer baseline; 3 checks deferred, see Roadmap) |
 | M8 | *(optional)* Local `ollama` profile | next (optional) |
 
 The current pipeline is the **naive baseline** that M3's evaluation will measure. Every later milestone has to beat it on
@@ -672,8 +672,8 @@ The answers themselves are measured too (M7). The generation flag sends every qu
 The run stopped being useful at question 55, when the OpenAI organization reached its spend limit. The 18 failed
 questions are API errors, and they include all of the unanswerable ones.
 - **What the 55 answers show:** each was faithful to its sources, relevant and correctly cited.
-- **Correctness:** 5 of the 6 failures miss a secondary detail of the reference answer. Only `q32` is a genuinely
-  incomplete answer.
+- **Correctness:** 4 of the 6 failures miss a secondary detail of the reference answer. `q12` is a wording
+  disagreement ("implements" vs "extends"), and only `q32` is a genuinely incomplete answer.
 - **Still unmeasured:** whether the model refuses the questions the reranker lets through.
 
 Details are in [`eval/README.md`](eval/README.md#m7-answer-quality-partial-baseline).
@@ -744,6 +744,10 @@ previous configuration.
      reuse the chunk's wording.
   2. A human reviews them into `eval/golden-set.json`.
   3. `EvalRunner` (`eval` profile) reports hit@5, recall@5, MRR@10 and p50/p95 latency.
+- **Deferred from M7** (skipped when the OpenAI spend limit was reached):
+  1. Re-run `--rag.eval.generation=true`, above all for the unanswerable questions and the answer-side refusals.
+  2. Spec check 4 on the real index: `POST /api/retrieve` in VECTOR vs HYBRID mode for an identifier question.
+  3. The live browser check of the debug panel, and its screenshot.
 - **M8 (optional):** an `ollama` profile with local models.
 
 ## Project layout

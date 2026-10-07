@@ -206,4 +206,23 @@ class ReportWriterTest {
     void thereIsNoGenerationSectionWithoutTheFlag() {
         assertThat(ReportWriter.markdown(report(0))).doesNotContain("## Generation");
     }
+
+    @Test
+    void aRefusalThatAlsoCitesSourcesIsListedForReview() {
+        // A hedged reply ("I couldn't find this… but here are another product's settings [1]") is classified as a
+        // refusal and never judged, so the report must surface it rather than count it silently as a correct refusal.
+        Item hedged = new Item("u04", "Which properties configure watsonx?", false, Outcome.REFUSED_BY_MODEL, 3,
+                "I couldn't find this in the indexed documentation. OpenAI's chat uses spring.ai.openai.chat.options.model [1].",
+                null, null, null, null, 800);
+        Item plain = new Item("u05", "Couchbase?", false, Outcome.REFUSED_BY_MODEL, 3, AnswerService.PROMPT_REFUSAL,
+                null, null, null, null, 700);
+        RetrievalOptions chat = new RetrievalOptions(5, 0.0, RetrievalMode.HYBRID, 20).withRerank(true).withMinScore(6);
+        GenerationReport generation = new GenerationReport("gpt-5-mini", "gpt-4.1-mini", chat, Group.of(List.of()),
+                Group.of(List.of(hedged, plain)), 0, List.of(hedged, plain));
+
+        String markdown = ReportWriter.markdown(report(0).withGeneration(generation));
+
+        assertThat(markdown).contains("- **u04** Which properties configure watsonx? — refusal that also cites sources");
+        assertThat(markdown).doesNotContain("- **u05**");
+    }
 }
