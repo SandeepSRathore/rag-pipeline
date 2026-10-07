@@ -376,5 +376,38 @@ Run TDD inside each milestone (superpowers:test-driven-development). Pause at M3
       - The two unanswerable questions that got through (watsonx, Couchbase) were matched to another product's
         configuration and rated 8–9.
 
+38. **A rerank reply that skips a candidate is a failure** (from M7 planning; supersedes amendment 33's "unrated
+    candidates score 0").
+    - The fused order is kept and no minimum applies.
+    - An unrated candidate scored 0 would be dropped by the minimum, so a partial reply could refuse an answerable
+      question unnoticed (M6 review).
+    - It never happened in M6's 292 rerank calls.
+39. **Generation eval** (`--rag.eval.generation=true` with the `eval` profile, after the retrieval configs).
+    - **Path:** every golden question goes through `AnswerService`, the chat path with its defaults, using the answer
+      model.
+    - **Outcome per question:** refused by retrieval (no sources), refused by the model (the answer contains the
+      prompt's refusal sentence or the no-sources sentence), failed (an error event or an empty answer), or answered.
+    - **Only answered questions are judged.** Both judges mark a refusal unsupported.
+    - **The judge is Spring AI's evaluators on the utility model,** a different model from the answer model:
+      - **faithfulness:** `FactCheckingEvaluator`, with the answer as the claim and its sources as the document;
+      - **relevancy:** `RelevancyEvaluator` (question, answer, sources);
+      - **correctness:** `FactCheckingEvaluator` with the golden `referenceAnswer` as the claim and the answer as the
+        document. Answerable questions only.
+    - **Probe while planning:**
+      - `gpt-4.1-mini` replied exactly `yes`/`No`/`YES`/`NO`, with correct verdicts on 6 cases;
+      - Spring AI passes only an exact "yes" (any case), so a decorated reply would be a fail;
+      - judge exceptions are counted apart.
+    - **No decision rule:** M7 records a baseline.
+40. **`CitationValidator`:**
+    - A citation is `[n]` outside fenced or inline code.
+    - Citations are valid when the answer cites at least one source and every number is within 1..sources.
+    - The rate is reported over answered questions.
+41. **`POST /api/retrieve`:** retrieval only, returning `{chunks, trace}`.
+    - Optional `mode`, `topK` (1–20), `rewrite`, `queryVariants` (0–5), `rerank` and `minScore` (0–10). Each defaults
+      to its `rag.retrieval.*` value.
+    - Out-of-range values or an unknown mode → 400.
+42. **Debug trace:** `POST /api/chat` with `"debug": true` streams a `trace` event (the `PipelineTrace`) right after
+    `sources`. Without it, the SSE protocol is unchanged. The UI's Debug toggle renders the trace.
+
 **Scope decision (2026-10-05):** this stays a learning project. Production hardening (auth, document ACLs, rate limits,
 async ingestion jobs, CI eval gates, deployment) is intentionally out of scope.
