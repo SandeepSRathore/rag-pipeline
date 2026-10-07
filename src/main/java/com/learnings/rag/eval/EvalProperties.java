@@ -9,11 +9,13 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * @param goldenSet the reviewed golden set the eval scores against (committed)
  * @param reportsDir where eval reports are written (gitignored)
  * @param golden how the golden-set generator samples and writes its draft
+ * @param generation also generate and judge an answer for every question (calls the answer and judge models)
  */
 @ConfigurationProperties("rag.eval")
 public record EvalProperties(@DefaultValue("eval/golden-set.json") Path goldenSet,
         @DefaultValue("eval/reports") Path reportsDir,
-        @DefaultValue Golden golden) {
+        @DefaultValue Golden golden,
+        @DefaultValue("false") boolean generation) {
 
     /**
      * @param draft where the generator writes questions for review (never the reviewed golden set itself)

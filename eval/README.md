@@ -63,6 +63,19 @@ This writes `eval/reports/<UTC time>.md` and `.json` (gitignored). Each report r
 - the embedding model and the chunking settings;
 - per-question ranks and a list of misses (what was expected and what came back).
 
+To also measure the answers, add the generation flag. It calls the answer model and the judge for every question, so it
+takes about 20 more minutes and costs well under a dollar:
+
+```bash
+./mvnw spring-boot:run -Dspring-boot.run.profiles=eval -Dspring-boot.run.arguments=--rag.eval.generation=true
+```
+
+Every question goes through the chat path with the chat defaults. Each answer is classified, then judged:
+- **Classification:** answered, refused by retrieval (no sources), refused by the model (the prompt's "I couldn't
+  find…" sentence), or failed.
+- **Judging:** only answered questions are judged, by Spring AI's evaluators on the utility model (`gpt-4.1-mini`), a
+  different model from the one that answers.
+
 ## Metrics
 
 | Metric | Meaning |
@@ -73,6 +86,10 @@ This writes `eval/reports/<UTC time>.md` and `.json` (gitignored). Each report r
 | refused: unanswerable | Unanswerable questions whose retrieval came back empty, out of all unanswerable ones. Chat then answers "I couldn't find…" without calling the model. Higher is better. |
 | refused: answerable | Answerable questions whose retrieval came back empty (false refusals). They also count as misses in hit@5. |
 | p50 / p95 | Retrieval latency per answerable question in ms, including the query-embedding call (nearest-rank percentiles). |
+| Faithful | Answered questions whose answer the judge finds supported by its sources (`FactCheckingEvaluator`: the answer is the claim, the sources are the document). |
+| Relevant | Answered questions whose answer responds to the question in line with the sources (`RelevancyEvaluator`). |
+| Correct | Answered questions whose answer contains the golden `referenceAnswer` (`FactCheckingEvaluator`: the reference is the claim, the answer is the document). Answerable questions only. |
+| Citations valid | Answered questions that cite at least one source, with every `[n]` within 1..sources (`CitationValidator`; numbers in code don't count). |
 
 hit@5, recall@5, MRR@10 and latency cover only the answerable questions.
 
