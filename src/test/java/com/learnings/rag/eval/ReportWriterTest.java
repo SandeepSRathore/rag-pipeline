@@ -12,6 +12,8 @@ import org.junit.jupiter.api.io.TempDir;
 import com.learnings.rag.config.RagProperties;
 import com.learnings.rag.eval.EvalReport.ConfigResult;
 import com.learnings.rag.eval.EvalReport.ItemResult;
+import com.learnings.rag.eval.EvalReport.MinScoreRow;
+import com.learnings.rag.eval.EvalReport.Refusals;
 import com.learnings.rag.eval.EvalReport.RunInfo;
 import com.learnings.rag.eval.RetrievalMetrics.ItemScore;
 import com.learnings.rag.eval.RetrievalMetrics.RankedSource;
@@ -99,9 +101,9 @@ class ReportWriterTest {
     void reportsHowManyQueriesEachConfigSearchedAndHowOftenExpansionFellBack() {
         ExpectedSource source = new ExpectedSource("a.adoc", "");
         ItemResult expanded = new ItemResult("q01", "Question?", List.of(source), new ItemScore(1, true, 1.0, 1.0), 900,
-                List.of(), List.of("Question?", "v1", "v2", "v3"));
+                List.of(), List.of("Question?", "v1", "v2", "v3"), false);
         ItemResult fellBack = new ItemResult("q02", "Question 2?", List.of(source), new ItemScore(1, true, 1.0, 1.0), 400,
-                List.of(), List.of("Question 2?"));
+                List.of(), List.of("Question 2?"), false);
         RetrievalMetrics.Summary summary = RetrievalMetrics.summarize(List.of(expanded.score(), fellBack.score()),
                 List.of(900L, 400L));
         EvalReport report = new EvalReport(Instant.parse("2026-10-06T09:30:00Z"), report(0).run(), List.of(
@@ -134,5 +136,33 @@ class ReportWriterTest {
                 "| u01 | ✓ | – | – | How long should I proof sourdough? |",
                 "| u02 | ✗ | `upgrade-notes.adoc` › Pinecone | 0.200 | Which properties configure Pinecone? |");
         assertThat(markdown).doesNotContain("| u01 | –", "- **u02**"); // not in the rank table or the misses
+    }
+
+    @Test
+    void rerankConfigsShowTheMinScoreSweepAndHowOftenRerankFellBack() {
+        ExpectedSource source = new ExpectedSource("a.adoc", "");
+        ItemResult reranked = new ItemResult("q01", "Question?", List.of(source), new ItemScore(1, true, 1.0, 1.0), 900,
+                List.of(new RankedSource("a.adoc", "", 8.0)), List.of("Question?"), false);
+        ItemResult fellBack = new ItemResult("q02", "Question 2?", List.of(source), new ItemScore(1, true, 1.0, 1.0), 400,
+                List.of(new RankedSource("a.adoc", "", 0.03)), List.of("Question 2?"), true);
+        List<ItemResult> items = List.of(reranked, fellBack);
+        RetrievalMetrics.Summary summary = RetrievalMetrics.summarize(items.stream().map(ItemResult::score).toList(),
+                List.of(900L, 400L));
+        List<MinScoreRow> sweep = List.of(new MinScoreRow(0, 1.0, 1.0, 1.0, new Refusals(0, 0, 0)),
+                new MinScoreRow(9, 0.5, 0.5, 0.5, new Refusals(0, 0, 1)));
+        EvalReport report = new EvalReport(Instant.parse("2026-10-06T09:30:00Z"), report(0).run(), List.of(
+                new ConfigResult("hybrid+rerank", new RetrievalOptions(10, 0.0, RetrievalMode.HYBRID, 20).withRerank(true),
+                        summary, List.of(), Refusals.of(items), sweep, items)));
+
+        assertThat(ReportWriter.markdown(report)).contains(
+                "Rerank fell back to the fused order (questions): hybrid+rerank 1",
+                "## hybrid+rerank: min-score sweep",
+                "| 0 | 1.000 | 1.000 | 1.000 | – | 0 |",
+                "| 9 | 0.500 | 0.500 | 0.500 | – | 1 |");
+    }
+
+    @Test
+    void configsWithoutRerankShowNoSweep() {
+        assertThat(ReportWriter.markdown(report(0))).doesNotContain("min-score sweep", "Rerank fell back");
     }
 }

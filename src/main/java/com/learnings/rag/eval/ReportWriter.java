@@ -16,6 +16,7 @@ import org.springframework.stereotype.Component;
 import com.learnings.rag.config.RagProperties;
 import com.learnings.rag.eval.EvalReport.ConfigResult;
 import com.learnings.rag.eval.EvalReport.ItemResult;
+import com.learnings.rag.eval.EvalReport.MinScoreRow;
 import com.learnings.rag.eval.EvalReport.Refusals;
 import com.learnings.rag.eval.EvalReport.RunInfo;
 import com.learnings.rag.eval.EvalReport.TagSummary;
@@ -102,6 +103,13 @@ public class ReportWriter {
                     return text;
                 })
                 .collect(joining(" · "))).append('\n');
+        if (report.configs().stream().anyMatch(config -> config.options().rerank())) {
+            md.append("\nRerank fell back to the fused order (questions): ").append(report.configs().stream()
+                    .filter(config -> config.options().rerank())
+                    .map(config -> config.name() + " "
+                            + config.items().stream().filter(ItemResult::rerankFellBack).count())
+                    .collect(joining(" · "))).append('\n');
+        }
         if (report.configs().stream().anyMatch(config -> !config.byTag().isEmpty())) {
             md.append("\n## By tag\n\n| Config | Tag | Items | hit@5 | recall@5 | MRR@10 |\n|---|---|---|---|---|---|\n");
             for (ConfigResult config : report.configs()) {
@@ -114,6 +122,26 @@ public class ReportWriter {
                             .append(" | ").append(decimal(summary.recallAt5()))
                             .append(" | ").append(decimal(summary.mrrAt10())).append(" |\n");
                 }
+            }
+        }
+
+        for (ConfigResult config : report.configs()) {
+            if (config.minScoreSweep().isEmpty()) {
+                continue;
+            }
+            md.append("\n## ").append(config.name()).append(": min-score sweep\n\n")
+                    .append("Each row is what this run would have scored with `rag.retrieval.rerank.min-score` at that ")
+                    .append("value: chunks rated below it are dropped, and a question left with no chunks is refused. ")
+                    .append("Questions whose rerank failed keep their chunks.\n\n")
+                    .append("| min-score | hit@5 | recall@5 | MRR@10 | refused: unanswerable | refused: answerable |\n")
+                    .append("|---|---|---|---|---|---|\n");
+            for (MinScoreRow row : config.minScoreSweep()) {
+                md.append("| ").append(row.minScore())
+                        .append(" | ").append(decimal(row.hitAt5()))
+                        .append(" | ").append(decimal(row.recallAt5()))
+                        .append(" | ").append(decimal(row.mrrAt10()))
+                        .append(" | ").append(refusedUnanswerable(row.refusals()))
+                        .append(" | ").append(row.refusals().answerableRefused()).append(" |\n");
             }
         }
 

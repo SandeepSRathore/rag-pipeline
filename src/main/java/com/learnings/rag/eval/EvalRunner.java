@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import com.learnings.rag.config.RagProperties;
 import com.learnings.rag.eval.EvalReport.ConfigResult;
 import com.learnings.rag.eval.EvalReport.ItemResult;
+import com.learnings.rag.eval.EvalReport.MinScoreRow;
 import com.learnings.rag.eval.EvalReport.Refusals;
 import com.learnings.rag.eval.EvalReport.RunInfo;
 import com.learnings.rag.eval.EvalReport.TagSummary;
@@ -98,7 +99,7 @@ public class EvalRunner {
             RetrievalMetrics.ItemScore score = item.answerable()
                     ? RetrievalMetrics.score(item.expectedSources(), ranked) : null;
             results.add(new ItemResult(item.id(), item.question(), item.expectedSources(), score, millis, ranked,
-                    queries));
+                    queries, retrieval.trace().rerankFellBack()));
         }
         List<GoldenItem> answerableItems = new ArrayList<>();
         List<ItemResult> answerable = new ArrayList<>();
@@ -116,8 +117,11 @@ public class EvalRunner {
                 config.name(), summary.hitAt5(), summary.recallAt5(), summary.mrrAt10(), summary.p50Millis(),
                 summary.p95Millis(), refusals.unanswerableRefused(), refusals.unanswerable(),
                 refusals.answerableRefused());
+        // The sweep needs every rating, so only a run at minimum 0 can be swept.
+        List<MinScoreRow> sweep = config.options().rerank() && config.options().minScore() == 0
+                ? MinScoreSweep.sweep(results) : List.of();
         return new ConfigResult(config.name(), config.options(), summary,
-                summarizeByTag(answerableItems, answerable), refusals, results);
+                summarizeByTag(answerableItems, answerable), refusals, sweep, results);
     }
 
     /** One summary per tag, plus "untagged" for the rest, in tag order; empty when no item is tagged. */
