@@ -22,7 +22,8 @@ class LlmQueryExpanderTest {
 
     private static LlmQueryExpander expander(ChatModel model) {
         RagProperties properties = new RagProperties(Path.of("corpus"), "model", new RagProperties.Chunking(500, 50, 60),
-                new RagProperties.Retrieval(5, 0.0, RetrievalMode.HYBRID, 20, false, 3, "gpt-4.1-mini"));
+                new RagProperties.Retrieval(5, 0.0, RetrievalMode.HYBRID, 20, false, 3, "gpt-4.1-mini",
+                        new RagProperties.Rerank(false, 0)));
         return new LlmQueryExpander(ChatClient.builder(model).build(),
                 new ClassPathResource("prompts/query-expansion.st"), properties);
     }

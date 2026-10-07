@@ -2,6 +2,7 @@ package com.learnings.rag.retrieval;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -21,11 +22,13 @@ import com.learnings.rag.config.RagProperties;
  * <li>optionally rewrites it;</li>
  * <li>optionally expands it into the original plus variants;</li>
  * <li>searches every query in the configured {@link RetrievalMode}, in parallel on virtual threads;</li>
- * <li>joins several rankings with reciprocal rank fusion.</li>
+ * <li>joins several rankings with reciprocal rank fusion;</li>
+ * <li>optionally reranks the candidates with {@link LlmReranker}, drops those rated below the minimum score and keeps
+ * the best top K.</li>
  * </ol>
  * HYBRID runs vector and keyword search in parallel for each query. Every stage is traced; a single query keeps
  * M4's stage names ({@code vector}, {@code keyword}, {@code fusion}), several get a {@code q1:} prefix and a final
- * {@code join}. Reranking arrives in M6.
+ * {@code join}; reranking adds {@code rerank}, or {@link PipelineTrace#RERANK_FAILED} when it failed.
  */
 @Service
 public class RetrievalPipeline {
@@ -34,14 +37,17 @@ public class RetrievalPipeline {
     private final KeywordRetriever keywordRetriever;
     private final QueryRewriter queryRewriter;
     private final LlmQueryExpander queryExpander;
+    private final LlmReranker reranker;
     private final RetrievalOptions defaults;
 
     public RetrievalPipeline(VectorRetriever vectorRetriever, KeywordRetriever keywordRetriever,
-            QueryRewriter queryRewriter, LlmQueryExpander queryExpander, RagProperties properties) {
+            QueryRewriter queryRewriter, LlmQueryExpander queryExpander, LlmReranker reranker,
+            RagProperties properties) {
         this.vectorRetriever = vectorRetriever;
         this.keywordRetriever = keywordRetriever;
         this.queryRewriter = queryRewriter;
         this.queryExpander = queryExpander;
+        this.reranker = reranker;
         this.defaults = RetrievalOptions.from(properties);
     }
 
@@ -64,9 +70,11 @@ public class RetrievalPipeline {
             queries = expand.queries();
         }
 
+        // The reranker rates `candidates` chunks and keeps the best topK; without it, the search keeps topK directly.
+        int depth = options.rerank() ? Math.max(options.candidates(), options.topK()) : options.topK();
         List<Document> documents;
         if (queries.size() == 1) {
-            List<Timed> search = search(queries.getFirst(), options, options.topK(), "");
+            List<Timed> search = search(queries.getFirst(), options, depth, "");
             stages.addAll(search);
             documents = search.getLast().documents();
         }
@@ -75,9 +83,12 @@ public class RetrievalPipeline {
             perQuery.forEach(stages::addAll);
             Timed join = timed("join", () -> ReciprocalRankFusion.fuse(
                     perQuery.stream().map(search -> search.getLast().documents()).toList(),
-                    ReciprocalRankFusion.DEFAULT_K, options.topK()));
+                    ReciprocalRankFusion.DEFAULT_K, depth));
             stages.add(join);
             documents = join.documents();
+        }
+        if (options.rerank()) {
+            documents = rerank(question, documents, options, stages);
         }
         PipelineTrace trace = new PipelineTrace(stages.stream().map(Timed::stage).toList(), millisSince(start));
         return new RetrievalResult(documents, trace);
@@ -86,6 +97,26 @@ public class RetrievalPipeline {
     /** Retrieves with the configured defaults ({@code rag.retrieval.*}). */
     public RetrievalResult retrieve(String question) {
         return retrieve(question, defaults);
+    }
+
+    /**
+     * Rates the candidates against the user's own question (not a rewrite), drops those rated below the minimum and
+     * keeps the best topK. If rating fails, the fused order is kept and no minimum applies: a reranker outage must not
+     * turn every question into a refusal.
+     */
+    private List<Document> rerank(String question, List<Document> candidates, RetrievalOptions options,
+            List<Timed> stages) {
+        long start = System.nanoTime();
+        Optional<List<Document>> rated = reranker.rerank(question, candidates);
+        if (rated.isEmpty()) {
+            stages.add(new Timed(PipelineTrace.RERANK_FAILED, List.of(), List.of(), millisSince(start)));
+            return candidates.stream().limit(options.topK()).toList();
+        }
+        stages.add(new Timed("rerank", rated.get(), List.of(), millisSince(start)));
+        return rated.get().stream()
+                .filter(document -> document.getScore() >= options.minScore())
+                .limit(options.topK())
+                .toList();
     }
 
     /** Every query in parallel; each keeps {@code candidates} chunks so the join has depth to fuse. */

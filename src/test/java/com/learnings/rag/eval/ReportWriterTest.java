@@ -105,7 +105,7 @@ class ReportWriterTest {
         RetrievalMetrics.Summary summary = RetrievalMetrics.summarize(List.of(expanded.score(), fellBack.score()),
                 List.of(900L, 400L));
         EvalReport report = new EvalReport(Instant.parse("2026-10-06T09:30:00Z"), report(0).run(), List.of(
-                new ConfigResult("hybrid+multiquery", new RetrievalOptions(10, 0.0, RetrievalMode.HYBRID, 20, false, 3),
+                new ConfigResult("hybrid+multiquery", new RetrievalOptions(10, 0.0, RetrievalMode.HYBRID, 20).withQueryVariants(3),
                         summary, List.of(), List.of(expanded, fellBack))));
 
         assertThat(ReportWriter.markdown(report))

@@ -141,4 +141,19 @@ class RetrievalPipelineIT {
 
         assertThat(pipeline.retrieve("anything at all").documents()).isEmpty();
     }
+
+    @Test
+    void aRerankerReplyThatCannotBeParsedKeepsTheHybridOrder() {
+        // The test context's stub chat model answers "Stub answer [1]." to every call, so reranking fails here.
+        String question = "Which index type is HNSW and how does it build its graph?";
+        RetrievalOptions hybrid = RetrievalOptions.from(properties).withMode(RetrievalMode.HYBRID);
+
+        RetrievalResult plain = pipeline.retrieve(question, hybrid);
+        RetrievalResult reranked = pipeline.retrieve(question, hybrid.withRerank(true).withMinScore(9));
+
+        assertThat(reranked.documents()).isNotEmpty().extracting(Document::getId)
+                .containsExactlyElementsOf(plain.documents().stream().map(Document::getId).toList());
+        assertThat(reranked.trace().stages()).extracting(PipelineTrace.Stage::name)
+                .containsExactly("vector", "keyword", "fusion", PipelineTrace.RERANK_FAILED);
+    }
 }

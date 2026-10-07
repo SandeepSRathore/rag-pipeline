@@ -19,6 +19,14 @@ public record PipelineTrace(List<Stage> stages, long totalMillis) {
         this(stages, stages.stream().mapToLong(Stage::elapsedMillis).sum());
     }
 
+    /** The stage recorded instead of {@code rerank} when reranking failed and the fused order was kept. */
+    public static final String RERANK_FAILED = "rerank-failed";
+
+    /** Whether reranking was asked for but failed, so the fused order was kept and no minimum score applied. */
+    public boolean rerankFellBack() {
+        return stages.stream().anyMatch(stage -> stage.name().equals(RERANK_FAILED));
+    }
+
     /** The queries that were searched: those of the last stage that lists any (expand, else rewrite); else empty. */
     public List<String> queries() {
         for (int i = stages.size() - 1; i >= 0; i--) {

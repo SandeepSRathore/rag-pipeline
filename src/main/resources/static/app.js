@@ -129,15 +129,21 @@ function renderSources(sources) {
 }
 
 // The score of each stage that returned the chunk; vector search is shown as "similarity". With several query
-// variants the per-variant scores are condensed to the join score and how many variants found the chunk.
+// variants the per-variant scores are condensed to the join score and how many variants found the chunk. A reranked
+// chunk leads with its 0-10 relevance rating.
 function scoreText(s) {
-  const entries = Object.entries(s.scores || {});
-  if (entries.length === 0) return s.score == null ? '' : `score ${s.score.toFixed(3)}`;
-  if ('join' in s.scores) {
+  const { rerank, ...retrieval } = s.scores || {};
+  const parts = rerank == null ? [] : [`relevance ${Number.isInteger(rerank) ? rerank : rerank.toFixed(1)}/10`];
+  const entries = Object.entries(retrieval);
+  if ('join' in retrieval) {
     const queries = new Set(entries.filter(([stage]) => stage.includes(':')).map(([stage]) => stage.split(':')[0])).size;
-    return `join ${s.scores.join.toFixed(4)} · found by ${queries} ${queries === 1 ? 'query' : 'queries'}`;
+    parts.push(`join ${retrieval.join.toFixed(4)} · found by ${queries} ${queries === 1 ? 'query' : 'queries'}`);
+  } else if (entries.length > 0) {
+    parts.push(entries.map(([stage, value]) => `${stage === 'vector' ? 'similarity' : stage} ${value.toFixed(3)}`).join(' · '));
+  } else if (parts.length === 0 && s.score != null) {
+    parts.push(`score ${s.score.toFixed(3)}`);
   }
-  return entries.map(([stage, value]) => `${stage === 'vector' ? 'similarity' : stage} ${value.toFixed(3)}`).join(' · ');
+  return parts.join(' · ');
 }
 
 function showSource(n) {
