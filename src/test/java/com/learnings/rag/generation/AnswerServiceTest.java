@@ -3,11 +3,13 @@ package com.learnings.rag.generation;
 import static com.learnings.rag.ingest.ChunkMetadata.BREADCRUMB;
 import static com.learnings.rag.ingest.ChunkMetadata.SOURCE_PATH;
 import static com.learnings.rag.ingest.ChunkMetadata.TITLE;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
@@ -137,5 +139,21 @@ class AnswerServiceTest {
         StepVerifier.create(service(new StubChatModel()).answer("q"))
                 .expectNext(new ChatEvent.Error(AnswerService.ANSWER_FAILED))
                 .verifyComplete();
+    }
+
+    @Test
+    void refusalsAreRecognisedHoweverTheModelPhrasesThem() {
+        assertThat(AnswerService.isRefusal(AnswerService.NO_SOURCES_ANSWER)).isTrue();
+        assertThat(AnswerService.isRefusal(AnswerService.PROMPT_REFUSAL)).isTrue();
+        assertThat(AnswerService.isRefusal("Direct answer: I couldn\u2019t find this in the indexed documentation.")).isTrue();
+        assertThat(AnswerService.isRefusal("I COULDN'T FIND THIS IN THE INDEXED DOCUMENTATION")).isTrue();
+        assertThat(AnswerService.isRefusal("HNSW is the default index type [1].")).isFalse();
+        assertThat(AnswerService.isRefusal("If you couldn't find the property, set index-type [1].")).isFalse();
+    }
+
+    @Test
+    void theSystemPromptStillUsesTheRefusalSentence() throws IOException {
+        assertThat(new ClassPathResource("prompts/answer-system.st").getContentAsString(UTF_8))
+                .contains(AnswerService.PROMPT_REFUSAL);
     }
 }

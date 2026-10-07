@@ -1,6 +1,7 @@
 package com.learnings.rag.generation;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -33,6 +34,22 @@ public class AnswerService {
 
     public static final String ANSWER_FAILED =
             "Sorry, the answer could not be generated. The server log has the details.";
+
+    /** The refusal sentence the system prompt asks for (prompts/answer-system.st). */
+    public static final String PROMPT_REFUSAL = "I couldn't find this in the indexed documentation.";
+
+    private static final List<String> REFUSALS = List.of(
+            "i couldn't find this in the indexed documentation",
+            "i couldn't find anything about that in the indexed documentation");
+
+    /**
+     * Whether an answer is a refusal: the no-sources answer, or the prompt's refusal sentence anywhere in it (models
+     * sometimes prefix it, e.g. "Direct answer: I couldn't find this…"). Case and curly apostrophes don't matter.
+     */
+    public static boolean isRefusal(String answer) {
+        String normalized = answer.replace('\u2019', '\'').toLowerCase(Locale.ROOT);
+        return REFUSALS.stream().anyMatch(normalized::contains);
+    }
 
     private static final Logger log = LoggerFactory.getLogger(AnswerService.class);
 
