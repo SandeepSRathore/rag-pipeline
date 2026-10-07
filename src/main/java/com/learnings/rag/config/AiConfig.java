@@ -9,7 +9,7 @@ import org.springframework.context.annotation.Configuration;
 public class AiConfig {
 
     /**
-     * The utility client for query rewriting and expansion (and later reranking and judging): a small, fast,
+     * The utility client for query rewriting, expansion and reranking (and later judging): a small, fast,
      * deterministic model, separate from the answer client, with no advisors. The answer client is built in
      * AnswerService from its own ChatClient.Builder, which is prototype-scoped, so these options never reach it.
      */

@@ -8,7 +8,7 @@ It is a learning project that aims for production-grade technique: each retrieva
 multi-query, reranking) gets added only after an evaluation harness can measure it against a golden set. The design is in
 [`docs/superpowers/specs/2026-10-05-rag-pipeline-design.md`](docs/superpowers/specs/2026-10-05-rag-pipeline-design.md).
 
-![A question about the HNSW index answered with clickable citations and ranked sources](docs/images/01-ask-cited-answer.png)
+![A question about the HNSW index answered with clickable citations, and sources with their relevance ratings](docs/images/01-ask-cited-answer.png)
 
 ## Contents
 
@@ -41,8 +41,8 @@ multi-query, reranking) gets added only after an evaluation harness can measure 
 | M3 | Golden set (generated, then reviewed) and an `EvalRunner` with retrieval metrics | ✅ done |
 | M4 | Keyword search (`tsvector`) plus reciprocal rank fusion: hybrid retrieval | ✅ done (hybrid is the default; see Evaluation) |
 | M5 | Query rewriting and multi-query expansion, parallel retrieval | ✅ done (both measured; off by default) |
-| M6 | LLM reranker with a minimum score, so off-topic questions are refused | next |
-| M7 | Generation evals (faithfulness, relevancy, citation validity), `/api/retrieve`, debug panel | planned |
+| M6 | LLM reranker with a minimum score, so off-topic questions are refused | ✅ done (on by default, min-score 6; see Evaluation) |
+| M7 | Generation evals (faithfulness, relevancy, citation validity), `/api/retrieve`, debug panel | next |
 | M8 | *(optional)* Local `ollama` profile | planned |
 
 The current pipeline is the **naive baseline** that M3's evaluation will measure. Every later milestone has to beat it on
@@ -103,7 +103,7 @@ open http://localhost:8081
 ### Ask a question
 
 Type a question and press **Ask**, or press <kbd>⌘</kbd>/<kbd>Ctrl</kbd>+<kbd>Enter</kbd>.
-1. While the five most similar chunks are retrieved, the status line reads *Retrieving…*.
+1. While the chunks are retrieved and rated (about 4 s with the reranker), the status line reads *Retrieving…*.
 2. The sources appear as soon as retrieval finishes.
 3. The answer then streams in. Under it, a line shows the retrieval and generation times and the token usage.
 
@@ -117,14 +117,20 @@ exact chunk text the model saw, including its contextual header:
 
 ### When the docs don't contain the answer
 
-The system prompt tells the model to say so instead of answering from general knowledge. In the next screenshot, all
-retrieved chunks have low similarity (about 0.15, compared with about 0.6 for on-topic questions):
+There are two guards:
+1. **The reranker's minimum score** (on by default).
+   - If no retrieved chunk is rated at least 6 out of 10, the app sends no sources and doesn't call the model. It
+     answers: *"I couldn't find anything about that in the indexed documentation. Try rephrasing, or ingest the
+     relevant documents first."*
+   - In the M6 eval, this refused 8 of 10 unanswerable questions and no answerable one. The minimum was chosen on those
+     same questions, so expect somewhat worse on new ones. An empty index gives the same answer.
 
-![An off-topic question gets "I couldn't find this in the indexed documentation."](docs/images/03-not-in-the-docs.png)
+   ![An off-topic question is refused before the answer model is called: no sources, generation 0 ms](docs/images/03-not-in-the-docs.png)
 
-If retrieval returns nothing at all (an empty index), the app answers without calling the model:
-*"I couldn't find anything about that in the indexed documentation. Try rephrasing, or ingest the relevant documents
-first."*
+2. **The prompt rule.** Sometimes chunks pass the minimum but don't contain the answer. The system prompt then tells the
+   model to say *"I couldn't find this in the indexed documentation."* instead of answering from general knowledge.
+   - This guards the questions the reranker lets through. For example, a question about a provider the docs don't
+     cover can look answered by another provider's settings.
 
 ### Manage documents
 
@@ -319,7 +325,9 @@ sequenceDiagram
     and keyword search
         R->>P: websearch_to_tsquery, ts_rank top-20
     end
-    R->>R: reciprocal rank fusion → top 5
+    R->>R: reciprocal rank fusion → 20 candidates
+    R->>O: rate 20 candidates 0–10 (utility model)
+    R->>R: drop below min-score → top 5
     R-->>A: documents + trace
     A-->>B: event: sources
     A->>O: stream(system rules + numbered sources + question)
@@ -337,8 +345,19 @@ sequenceDiagram
    - **Keyword search** (`KeywordRetriever`): Postgres full-text search over `content_tsv` returns the top 20. It uses
      `websearch_to_tsquery` with the terms OR-ed, ranked by length-normalised `ts_rank`.
 
-   **Fusion** (`ReciprocalRankFusion`, k = 60) merges the two rankings by rank alone and keeps the top-k (5). Both
-   searches only see chunks of the current embedding model. The `vector` and `keyword` modes run one retriever alone.
+   **Fusion** (`ReciprocalRankFusion`, k = 60) merges the two rankings by rank alone. It keeps the 20 best for the
+   reranker, or the top-k (5) when reranking is off. Both searches only see chunks of the current embedding model. The
+   `vector` and `keyword` modes run one retriever alone.
+
+   **Rerank** (`LlmReranker`, on by default since M6):
+   - One call to the utility model rates each of the 20 candidates from 0 to 10 for how well it answers the question
+     (see [`prompts/rerank.st`](src/main/resources/prompts/rerank.st)).
+   - Passages are numbered and escaped, so a chunk can't pose as another passage.
+   - The ratings are cleaned: clamped to 0–10, deduplicated, and unrated candidates score 0.
+   - Candidates rated below `min-score` (6) are dropped, and the best 5 are kept. If none is left, the question is
+     refused without calling the answer model.
+   - If the rating call fails, the fused order is kept and no minimum applies.
+   - It adds about 3 s per question.
 
    Before searching, the question can optionally be rewritten (`rag.retrieval.rewrite`) or expanded into extra phrasings
    (`rag.retrieval.query-variants`). Both use the utility model (`gpt-4.1-mini`). Each phrasing is then searched in
@@ -465,12 +484,14 @@ variables or `--name=value`.
 | `rag.chunking.min-tokens` | `50` | Smaller chunks merge into the next one. |
 | `rag.chunking.overlap-tokens` | `60` | Trailing prose repeated at the start of the next chunk. |
 | `rag.retrieval.top-k` | `5` | Chunks handed to the model. |
-| `rag.retrieval.similarity-threshold` | `0.0` | Minimum cosine similarity. M6's reranker will own refusals. |
+| `rag.retrieval.similarity-threshold` | `0.0` | Minimum cosine similarity. Refusals come from the reranker's minimum score (`rag.retrieval.rerank.min-score`). |
 | `rag.retrieval.mode` | `hybrid` | `vector`, `keyword` or `hybrid` (both in parallel, fused with RRF k=60). Chosen by the M4 eval. |
-| `rag.retrieval.candidates` | `20` | Hybrid: chunks each retriever contributes before fusion. |
+| `rag.retrieval.candidates` | `20` | Hybrid: chunks each retriever contributes before fusion, and the reranker's input. |
 | `rag.retrieval.rewrite` | `false` | Rewrite the question with the utility model before searching. Off: it lowered MRR@10 in the M5 eval. |
 | `rag.retrieval.query-variants` | `0` | Extra phrasings searched in parallel and fused across queries (0 = off). Off: it lowered MRR@10 in the M5 eval. |
-| `rag.retrieval.utility-model` | `gpt-4.1-mini` | Model for rewriting and expansion. It must accept temperature 0, which gpt-5 models do not. |
+| `rag.retrieval.utility-model` | `gpt-4.1-mini` | Model for rewriting, expansion and reranking. It must accept temperature 0, which gpt-5 models do not. |
+| `rag.retrieval.rerank.enabled` | `true` | Rate the candidates 0–10 with the utility model and keep the best top-k. On: it raised MRR@10 from 0.905 to 0.976 in the M6 eval, at about 3 s per question. |
+| `rag.retrieval.rerank.min-score` | `6` | Candidates rated below this are dropped; if none is left, the app answers "I couldn't find…" without calling the answer model. Chosen by the M6 rule on the eval's own questions: there it refused 8 of 10 unanswerable questions, with no false refusals (in-sample, so optimistic). |
 | `server.port` / `server.address` | `8081` / `127.0.0.1` | Loopback only, because there is no authentication. |
 | `spring.servlet.multipart.max-file-size` | `20MB` | Upload limit. |
 | `spring.mvc.async.request-timeout` | `5m` | Tomcat's 30-second default would cut off long streamed answers. |
@@ -568,26 +589,33 @@ reviewed by Claude at the user's request rather than by a human:
 ./mvnw spring-boot:run -Dspring-boot.run.profiles=eval     # report: eval/reports/<time>.md + .json
 ```
 
-The eval reports hit@5, recall@5, MRR@10 and p50/p95 retrieval latency for each retrieval configuration. Golden
+The eval reports hit@5, recall@5, MRR@10, refusal counts and p50/p95 retrieval latency for each retrieval configuration. Golden
 labels name a page and a heading path, not chunk ids, so the set survives re-chunking.
 
-**M5 comparison (63 questions, 2026-10-06):**
+**M6 comparison (63 answerable + 10 unanswerable questions, 2026-10-07):**
 
-| Config | hit@5 | recall@5 | MRR@10 | p50 ms | p95 ms |
-|---|---|---|---|---|---|
-| vector | 0.984 | 0.971 | 0.851 | 500 | 658 |
-| keyword | 0.952 | 0.942 | 0.830 | 18 | 40 |
-| hybrid | 0.984 | 0.979 | 0.905 | 492 | 673 |
-| hybrid+rewrite | 0.921 | 0.915 | 0.784 | 1464 | 1744 |
-| hybrid+multiquery | 0.968 | 0.963 | 0.842 | 2032 | 2325 |
-| hybrid+rewrite+multiquery | 0.952 | 0.947 | 0.761 | 2982 | 3289 |
+| Config | hit@5 | recall@5 | MRR@10 | refused: unanswerable | refused: answerable | p50 ms | p95 ms |
+|---|---|---|---|---|---|---|---|
+| vector | 0.984 | 0.971 | 0.851 | 0/10 | 0 | 486 | 1059 |
+| keyword | 0.952 | 0.942 | 0.830 | 0/10 | 0 | 17 | 44 |
+| hybrid | 0.984 | 0.979 | 0.905 | 0/10 | 0 | 467 | 561 |
+| hybrid+multiquery | 0.968 | 0.963 | 0.829 | 0/10 | 0 | 1860 | 2346 |
+| hybrid+rerank | 0.984 | 0.984 | 0.976 | 0/10 | 0 | 3782 | 4805 |
+| hybrid+multiquery+rerank | 0.984 | 0.979 | 0.937 | 0/10 | 0 | 5082 | 5768 |
 
-Hybrid retrieval stays the default (chosen in M4). Rewriting and multi-query expansion are implemented
-(`rag.retrieval.rewrite`, `rag.retrieval.query-variants`) but stay **off**: both scored below plain hybrid in a single
-run and multiplied retrieval latency 3–6×. Both the rewrites and the expansion variants tended to add generic "Spring
-AI" / "Spring Boot" terms; that is an association, not a measured cause. Details, the per-tag results and the next
-ideas are in
-[`eval/README.md`](eval/README.md#m5-rewriting-and-multi-query). The golden set is AI-reviewed.
+**Reranking is now on by default, with min-score 6.** Rules fixed before the run chose these settings, and a second
+run confirmed them:
+- MRR@10 rises from 0.905 to 0.976 (0.952 in run 2);
+- 8 of 10 unanswerable questions are refused, with no false refusals;
+- retrieval takes about 3 s longer.
+
+The rerank rows in the table ran at min-score 0, so they refuse nothing. The refusal figures come from the eval's
+min-score sweep at 6. That minimum was chosen on these same questions, so the refusal figures are in-sample and
+probably optimistic: the weakest answerable question's best chunk was rated 7, one point above the minimum.
+
+Hybrid retrieval stays the default (M4), and rewriting and multi-query stay off (M5). The details, the min-score
+sweeps and the earlier milestones' results are in [`eval/README.md`](eval/README.md#m6-reranking-and-refusals). The
+golden set is AI-reviewed.
 
 ## Design decisions
 
@@ -610,9 +638,12 @@ The full reasoning is in the design spec, including its **Amendments** section. 
 - **No authentication, authorization or rate limiting.** These are intentionally out of scope for this learning project,
   and the app binds to `127.0.0.1`.
 - **Ingestion is synchronous:** a first full sync keeps the request open for about 90 s.
-- **No hard relevance cutoff yet:** an off-topic question is refused only by the prompt rule. If the corpus happens to
-  contain the fact (it does contain "Paris is the capital city of France" in a code example), the model answers with a
-  citation. M6 adds a reranker with a minimum score.
+- **The reranker is an LLM judge.**
+  - Its ratings vary between runs: MRR@10 was 0.976 and 0.952 in two identical eval runs.
+  - It can rate another product's settings as an answer. In the eval, questions about watsonx and Couchbase got
+    through, matched to OpenAI's and PGvector's configuration. Those fall back to the prompt rule.
+  - Like any LLM judge, it may favour the passages shown first (they are shown in fused order). This wasn't measured.
+  - It adds about 3 s per question.
 - **Uploads can't be re-embedded automatically:** only their chunks are stored, not the original text. After an
   embedding-model switch, upload them again.
 - **Merged sections lose sub-heading names:** when small sections are merged, only their shared breadcrumb is kept, so
@@ -647,7 +678,6 @@ previous configuration.
      reuse the chunk's wording.
   2. A human reviews them into `eval/golden-set.json`.
   3. `EvalRunner` (`eval` profile) reports hit@5, recall@5, MRR@10 and p50/p95 latency.
-- **M6:** an `LlmReranker` with a minimum score, so off-topic questions are refused.
 - **M7:** faithfulness and relevancy evaluators, citation validity, `POST /api/retrieve` and a debug panel in the UI.
 - **M8 (optional):** an `ollama` profile with local models.
 

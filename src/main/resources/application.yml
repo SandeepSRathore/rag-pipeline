@@ -58,10 +58,13 @@ rag:
     top-k: 5
     similarity-threshold: 0.0
     mode: hybrid          # vector | keyword | hybrid; chosen by the M4 eval (see eval/README.md)
-    candidates: 20        # hybrid: chunks each retriever contributes before fusion
+    candidates: 20        # hybrid: chunks each retriever contributes before fusion; with rerank, the chunks it rates
     rewrite: false                # rewrite the question with the utility model first (decided by the M5 eval)
     query-variants: 0             # extra phrasings searched and fused across queries; 0 = off (M5 eval)
-    utility-model: gpt-4.1-mini   # rewriting/expansion; must accept temperature 0
+    utility-model: gpt-4.1-mini   # rewriting, expansion and reranking; must accept temperature 0
+    rerank:
+      enabled: true               # rate the candidates 0-10 with the utility model, keep the best top-k (M6 eval)
+      min-score: 6                # drop candidates rated below this; none left → "I couldn't find…" (M6 eval)
   eval:
     golden-set: eval/golden-set.json         # reviewed (see eval/README.md), committed
     reports-dir: eval/reports                # gitignored

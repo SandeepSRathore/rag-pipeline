@@ -318,6 +318,63 @@ Run TDD inside each milestone (superpowers:test-driven-development). Pause at M3
       - p50 latency: 1.46 s, 2.03 s and 2.98 s, against 0.49 s.
       - This was a single run, and the LLM steps vary between calls even at temperature 0. The margins are far larger
         than one question (1/63), so the decision holds, but the exact candidate scores would move on a re-run.
+33. **`LlmReranker implements DocumentPostProcessor`** (from M6 planning), using the utility client.
+    - Spring AI's `DocumentPostProcessor` stands in for the `Reranker` interface above; a cross-encoder could
+      implement it later.
+    - One call rates every candidate 0–10 with structured output `{ratings: [{id, score}]}`. Passages are numbered
+      1..n in fused order (never by chunk UUID), and `<passage` tags in chunk text are escaped.
+    - The prompt names no product (M5's padding lesson).
+    - **Ratings are cleaned:**
+      - scores are clamped to 0–10;
+      - unknown and repeated ids are ignored;
+      - unrated candidates score 0;
+      - ties keep the fused order.
+    - **A failure (error, unparseable reply, no usable rating) returns empty.**
+    - **Measured while planning:** chunks average 201 tokens (max 997), so 20 whole candidates come to about 4,000
+      tokens. No truncation.
+34. **Rerank flow** (`rag.retrieval.rerank.enabled`, `rag.retrieval.rerank.min-score`):
+    - The search, single query or multi-query join, keeps `max(candidates, topK)` chunks.
+    - The reranker judges them against the user's question, not a rewrite.
+    - Candidates rated below `min-score` are dropped, and the best `topK` are kept.
+    - **If none is left,** chat sends no sources and answers "I couldn't find anything about that…" without calling
+      the answer model.
+    - **If reranking fails,** the fused order is kept, no minimum applies, and the trace records a `rerank-failed`
+      stage, which the eval counts.
+    - `min-score` is ignored when reranking is off.
+35. **Golden set v4 adds 10 unanswerable questions** (`u01`–`u10`, tag `unanswerable`, `expectedSources: []`).
+    - 3 are off-topic, and 7 are near the domain but absent from the corpus (checked with grep).
+    - Empty `expectedSources` are valid only with that tag, and the tag requires them.
+    - hit@5, recall@5, MRR@10, latency and the per-tag table cover the 63 answerable questions.
+    - **Reports add refusal counts:** unanswerable questions with empty retrieval (correct), and answerable ones with
+      empty retrieval (false refusals).
+36. **M6 eval configs:** `vector`, `keyword`, `hybrid`, `hybrid+multiquery`, `hybrid+rerank`, `hybrid+multiquery+rerank`.
+    - M5's rewrite rows are dropped (`eval/README.md` keeps their numbers).
+    - Rerank rows run at min-score 0, and the report sweeps min-score 0–10 from the recorded ratings. Ratings are
+      sorted, so a minimum removes a suffix, and each row equals a run at that minimum. Failed reranks are never
+      filtered.
+37. **Pre-registered M6 rules** (N = 63 answerable questions):
+    - **Min-score (rule T), per rerank configuration:**
+      - Among min-scores 0–10, keep those whose hit@5 and recall@5 are each at least the min-score-0 row's − 1/N.
+      - Pick the one refusing the most unanswerable questions; on a tie, the lowest.
+    - **Default (rule D):** a rerank configuration at its rule-T min-score qualifies when both hold:
+      1. its hit@5 and MRR@10 are each at least `hybrid`'s − 1/N;
+      2. its MRR@10 is at least `hybrid`'s + 1/N, or it refuses at least 5 of the 10 unanswerable questions.
+    - If both qualify, `hybrid+rerank` wins unless `hybrid+multiquery+rerank` beats its MRR@10 by at least 1/N.
+    - **Stability:**
+      - The eval runs twice, and the decision comes from run 1.
+      - It is adopted only if the winner also qualifies in run 2 at run 1's min-score.
+      - Otherwise reranking stays off.
+    - **Adoption:** the winner's settings become the defaults. Latency is reported, not capped.
+    - **Outcome** (run 1 2026-10-07T03-58-23Z, run 2 2026-10-07T04-13-41Z): **`hybrid+rerank` at min-score 6 becomes
+      the default.**
+      - Rule T: min-score 6 for `hybrid+rerank` and 7 for `hybrid+multiquery+rerank`. Min-scores 0–7 kept hit@5 and
+        recall@5 within 1/63; 6 and 7 both refuse 8 of 10.
+      - Rule D, run 1: hit@5 0.984 (hybrid 0.984), MRR@10 0.976 (hybrid 0.905), 8/10 refused, 0 false refusals. Both
+        candidates qualified; multi-query + rerank (MRR@10 0.937) didn't beat it by 1/63.
+      - Run 2 picked the same winner and min-score on its own: MRR@10 0.952 (hybrid 0.905), 8/10 refused, 0 false.
+      - p50 retrieval latency: 3.8 s (run 2: 3.6 s), against 0.47 s for hybrid.
+      - The two unanswerable questions that got through (watsonx, Couchbase) were matched to another product's
+        configuration and rated 8–9.
 
 **Scope decision (2026-10-05):** this stays a learning project. Production hardening (auth, document ACLs, rate limits,
 async ingestion jobs, CI eval gates, deployment) is intentionally out of scope.

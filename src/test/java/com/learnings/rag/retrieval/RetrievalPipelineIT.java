@@ -67,7 +67,7 @@ class RetrievalPipelineIT {
     @Test
     void ranksThePgvectorChunkFirstForAnIndexQuestion() {
         RetrievalResult result = pipeline.retrieve("Which index type is HNSW and how does it build its graph?",
-                RetrievalOptions.from(properties).withMode(RetrievalMode.VECTOR));
+                RetrievalOptions.from(properties).withMode(RetrievalMode.VECTOR).withRerank(false));
 
         assertThat(result.documents()).isNotEmpty().hasSizeLessThanOrEqualTo(5);
         assertThat(result.documents().getFirst().getMetadata()).containsEntry(ChunkMetadata.SOURCE_PATH, "pgvector.adoc");
@@ -95,7 +95,7 @@ class RetrievalPipelineIT {
     @Test
     void keywordModeFindsAnExactIdentifier() {
         RetrievalResult result = pipeline.retrieve("spring.ai.vectorstore.pgvector.index-type",
-                RetrievalOptions.from(properties).withMode(RetrievalMode.KEYWORD));
+                RetrievalOptions.from(properties).withMode(RetrievalMode.KEYWORD).withRerank(false));
 
         assertThat(result.documents().getFirst().getMetadata())
                 .containsEntry(ChunkMetadata.SOURCE_PATH, "pgvector.adoc")
@@ -106,7 +106,7 @@ class RetrievalPipelineIT {
     @Test
     void hybridModeFusesBothRetrieversIntoTopK() {
         RetrievalResult result = pipeline.retrieve("Which index type is HNSW and how does it build its graph?",
-                RetrievalOptions.from(properties).withMode(RetrievalMode.HYBRID));
+                RetrievalOptions.from(properties).withMode(RetrievalMode.HYBRID).withRerank(false));
 
         assertThat(result.documents()).isNotEmpty().hasSizeLessThanOrEqualTo(5)
                 .extracting(Document::getId).doesNotHaveDuplicates();
@@ -140,5 +140,20 @@ class RetrievalPipelineIT {
         jdbc.sql("TRUNCATE source_document, vector_store").update();
 
         assertThat(pipeline.retrieve("anything at all").documents()).isEmpty();
+    }
+
+    @Test
+    void aRerankerReplyThatCannotBeParsedKeepsTheHybridOrder() {
+        // The test context's stub chat model answers "Stub answer [1]." to every call, so reranking fails here.
+        String question = "Which index type is HNSW and how does it build its graph?";
+        RetrievalOptions hybrid = RetrievalOptions.from(properties).withMode(RetrievalMode.HYBRID).withRerank(false);
+
+        RetrievalResult plain = pipeline.retrieve(question, hybrid);
+        RetrievalResult reranked = pipeline.retrieve(question, hybrid.withRerank(true).withMinScore(9));
+
+        assertThat(reranked.documents()).isNotEmpty().extracting(Document::getId)
+                .containsExactlyElementsOf(plain.documents().stream().map(Document::getId).toList());
+        assertThat(reranked.trace().stages()).extracting(PipelineTrace.Stage::name)
+                .containsExactly("vector", "keyword", "fusion", PipelineTrace.RERANK_FAILED);
     }
 }

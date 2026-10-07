@@ -38,6 +38,7 @@ public record RagProperties(@DefaultValue("corpus") Path corpusDir,
      * @param rewrite rewrite the question with the utility model before searching
      * @param queryVariants extra phrasings of the question searched as well and fused across queries; 0 turns it off
      * @param utilityModel chat model for rewriting and expansion; it must accept temperature 0 (gpt-5 models do not)
+     * @param rerank rate the candidates with the utility model, keep the best top-k, drop low ratings
      */
     public record Retrieval(@DefaultValue("5") int topK,
             @DefaultValue("0.0") double similarityThreshold,
@@ -45,6 +46,16 @@ public record RagProperties(@DefaultValue("corpus") Path corpusDir,
             @DefaultValue("20") int candidates,
             @DefaultValue("false") boolean rewrite,
             @DefaultValue("0") int queryVariants,
-            @DefaultValue("gpt-4.1-mini") String utilityModel) {
+            @DefaultValue("gpt-4.1-mini") String utilityModel,
+            @DefaultValue Rerank rerank) {
+    }
+
+    /**
+     * @param enabled rate every candidate 0–10 with the utility model and keep the best top-k
+     * @param minScore candidates rated below this are dropped; if none is left, the question is refused without calling
+     *        the answer model. Ignored when reranking is off.
+     */
+    public record Rerank(@DefaultValue("false") boolean enabled,
+            @DefaultValue("0") double minScore) {
     }
 }

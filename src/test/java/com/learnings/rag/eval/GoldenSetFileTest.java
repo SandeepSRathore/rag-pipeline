@@ -121,4 +121,51 @@ class GoldenSetFileTest {
 
         assertThatThrownBy(() -> file.read(path)).hasMessageContaining("q01: blank tag");
     }
+
+    @Test
+    void anUnanswerableItemHasEmptyExpectedSources() throws IOException {
+        Path path = dir.resolve("golden-set.json");
+        Files.writeString(path, """
+                [
+                  {"id": "q01", "question": "How do I enable HNSW?",
+                   "expectedSources": [{"sourcePath": "a.adoc", "sectionPrefix": ""}]},
+                  {"id": "u01", "question": "How long should I proof sourdough?", "expectedSources": [],
+                   "tags": ["unanswerable"]}
+                ]""");
+
+        assertThat(file.read(path).items()).extracting(GoldenItem::answerable).containsExactly(true, false);
+    }
+
+    @Test
+    void emptyExpectedSourcesNeedTheUnanswerableTagAndTheTagNeedsThemEmpty() throws IOException {
+        Path path = dir.resolve("golden-set.json");
+        Files.writeString(path, """
+                [
+                  {"id": "q01", "question": "How?", "expectedSources": []},
+                  {"id": "u01", "question": "Sourdough?", "tags": ["unanswerable"],
+                   "expectedSources": [{"sourcePath": "a.adoc", "sectionPrefix": ""}]},
+                  {"id": "q02", "question": "Why?", "expectedSources": [{"sourcePath": "a.adoc", "sectionPrefix": ""}]}
+                ]""");
+
+        assertThatThrownBy(() -> file.read(path))
+                .hasMessageContaining("q01: no expectedSources (tag it \"unanswerable\" if the docs don't answer it)")
+                .hasMessageContaining("u01: an unanswerable item must have no expectedSources");
+    }
+
+    @Test
+    void aSetOfOnlyUnanswerableItemsIsInvalid() throws IOException {
+        Path path = dir.resolve("golden-set.json");
+        Files.writeString(path, """
+                [{"id": "u01", "question": "Sourdough?", "expectedSources": [], "tags": ["unanswerable"]}]""");
+
+        assertThatThrownBy(() -> file.read(path)).hasMessageContaining("no answerable item");
+    }
+
+    @Test
+    void theCommittedGoldenSetIsValidAndHoldsUnanswerableItems() {
+        GoldenSet set = file.read(Path.of("eval/golden-set.json"));
+
+        assertThat(set.items()).filteredOn(item -> !item.answerable()).isNotEmpty()
+                .allSatisfy(item -> assertThat(item.expectedSources()).isEmpty());
+    }
 }

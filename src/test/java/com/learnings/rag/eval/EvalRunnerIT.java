@@ -22,6 +22,7 @@ import com.learnings.rag.eval.EvalReport.ItemResult;
 import com.learnings.rag.ingest.CorpusIngestor;
 import com.learnings.rag.ingest.DocumentIngestionService;
 import com.learnings.rag.ingest.SourceDocument.Origin;
+import com.learnings.rag.retrieval.LlmReranker;
 
 @RagIntegrationTest
 class EvalRunnerIT {
@@ -77,8 +78,8 @@ class EvalRunnerIT {
         assertThat(report.run().goldenItems()).isEqualTo(2);
         assertThat(report.run().index().corpusDocuments()).isEqualTo(2);
         assertThat(report.configs()).extracting(EvalReport.ConfigResult::name)
-                .containsExactly("vector", "keyword", "hybrid", "hybrid+rewrite", "hybrid+multiquery",
-                        "hybrid+rewrite+multiquery");
+                .containsExactly("vector", "keyword", "hybrid", "hybrid+multiquery", "hybrid+rerank",
+                        "hybrid+multiquery+rerank");
         assertThat(report.configs()).allSatisfy(config -> assertThat(config.items()).hasSize(2));
         assertThat(report.configs().getFirst()).satisfies(config -> {
             assertThat(config.name()).isEqualTo("vector");
@@ -158,9 +159,47 @@ class EvalRunnerIT {
         assertThat(report.configs()).filteredOn(config -> config.name().equals("hybrid"))
                 .singleElement().satisfies(config -> assertThat(config.items().getFirst().queries())
                         .containsExactly(HNSW_QUESTION));
-        // The stub chat model answers "Stub answer [1].": rewriting searches that text, and expansion falls back to it.
-        assertThat(report.configs()).filteredOn(config -> config.name().equals("hybrid+rewrite+multiquery"))
+        // The stub chat model answers "Stub answer [1].", which is no list of variants: expansion falls back.
+        assertThat(report.configs()).filteredOn(config -> config.name().equals("hybrid+multiquery"))
                 .singleElement().satisfies(config -> assertThat(config.items().getFirst().queries())
-                        .containsExactly("Stub answer [1]."));
+                        .containsExactly(HNSW_QUESTION));
+    }
+
+    @Test
+    void unanswerableQuestionsAreCountedAsRefusalsNotScored() {
+        GoldenItem answerable = item("q01", new ExpectedSource("pgvector.adoc", ""));
+        // No word in common with the fixtures: keyword search finds nothing and the fake embeddings score cosine 0.
+        GoldenItem unanswerable = new GoldenItem("u01", "xylophone", List.of(), null, null,
+                List.of(GoldenItem.UNANSWERABLE));
+
+        EvalReport report = runner.run(goldenSet(answerable, unanswerable), EvalConfig.all(properties));
+
+        // Rewriting searches the stub model's reply ("Stub answer [1].") instead of the question, so it is left out.
+        assertThat(report.configs()).filteredOn(config -> !config.options().rewrite()).isNotEmpty()
+                .allSatisfy(config -> {
+                    assertThat(config.summary().items()).isEqualTo(1);
+                    assertThat(config.refusals()).isEqualTo(new EvalReport.Refusals(1, 1, 0));
+                    assertThat(config.items().get(1).score()).isNull();
+                });
+    }
+
+    @Test
+    void rerankRowsRecordFallbacksAndSweepTheMinimumScore() {
+        EvalReport report = runner.run(goldenSet(item("q01", new ExpectedSource("pgvector.adoc", ""))),
+                EvalConfig.all(properties));
+
+        // The stub chat model's reply is no list of ratings, so every rerank falls back to the fused order.
+        assertThat(report.configs()).filteredOn(config -> config.options().rerank()).hasSize(2).allSatisfy(config -> {
+            assertThat(config.items()).allSatisfy(item -> assertThat(item.rerankFellBack()).isTrue());
+            assertThat(config.minScoreSweep()).hasSize(LlmReranker.MAX_SCORE + 1);
+        });
+        assertThat(report.configs()).filteredOn(config -> !config.options().rerank())
+                .allSatisfy(config -> assertThat(config.minScoreSweep()).isEmpty());
+        assertThat(retrieved(report, "hybrid+rerank")).isEqualTo(retrieved(report, "hybrid"));
+    }
+
+    private static List<RetrievalMetrics.RankedSource> retrieved(EvalReport report, String config) {
+        return report.configs().stream().filter(result -> result.name().equals(config)).findFirst().orElseThrow()
+                .items().getFirst().retrieved();
     }
 }

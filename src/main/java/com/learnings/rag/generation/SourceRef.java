@@ -12,9 +12,10 @@ import com.learnings.rag.retrieval.PipelineTrace;
 
 /**
  * @param n the citation number the model uses ([n])
- * @param score what the chunk was ranked by: cosine similarity (vector), ts_rank_cd (keyword) or the fused RRF score
+ * @param score what the chunk was ranked by: cosine similarity (vector), ts_rank (keyword), the fused RRF score, or
+ *        the reranker's 0–10 rating
  * @param scores the chunk's score in each retrieval stage that returned it, in stage order,
- *        e.g. {vector=0.61, keyword=0.08, fusion=0.0325}
+ *        e.g. {vector=0.61, keyword=0.08, fusion=0.0325, rerank=8.0}
  */
 public record SourceRef(int n, String sourcePath, String title, String breadcrumb, Double score, String text,
         Map<String, Double> scores) {
