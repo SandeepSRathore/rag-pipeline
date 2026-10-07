@@ -385,6 +385,7 @@ All error responses are RFC 9457 problem details, e.g.
 | Method | Path | Purpose | Success | Errors |
 |---|---|---|---|---|
 | `POST` | `/api/chat` | Ask a question; returns an SSE stream | `200 text/event-stream` | `400` blank or over 2,000 characters |
+| `POST` | `/api/retrieve` | Retrieval only: the chunks and the full trace, no answer | `200` JSON | `400` blank question, out-of-range setting or unknown mode |
 | `POST` | `/api/ingest/corpus` | Sync `corpus/` into the index | `200` report | `409` corpus missing or empty |
 | `GET` | `/api/documents` | List indexed documents | `200` array | — |
 | `POST` | `/api/documents` | Upload one file (multipart field `file`) | `201` added, `200` updated or skipped | `400` no file name, `415` unsupported type, `422` no extractable text |
@@ -425,6 +426,27 @@ data:{"promptTokens":1641,"completionTokens":382,"retrievalMillis":1099,"generat
 
 `EventSource` can't send a POST, so the UI reads the stream with `fetch` and a `ReadableStream` parser (see
 [`app.js`](src/main/resources/static/app.js)).
+
+### `POST /api/retrieve`
+
+Runs retrieval only and returns the chunks the chat would see, plus every stage of the trace. It never calls the answer
+model. Every setting but `question` is optional and defaults to its `rag.retrieval.*` value:
+
+```bash
+curl -s -X POST localhost:8081/api/retrieve -H 'Content-Type: application/json' \
+     -d '{"question":"spring.ai.vectorstore.pgvector.index-type","mode":"VECTOR","rerank":false}'
+```
+
+| Field | Values |
+|---|---|
+| `mode` | `VECTOR`, `KEYWORD` or `HYBRID` |
+| `topK` | 1–20 |
+| `rewrite`, `rerank` | `true` / `false` |
+| `queryVariants` | 0–5 |
+| `minScore` | 0–10 (only with `rerank`) |
+
+The response is `{"chunks": [{rank, id, sourcePath, breadcrumb, score, text}], "trace": {"stages": [{name,
+elapsedMillis, hits: [{id, sourcePath, breadcrumb, score}], queries}], "totalMillis"}}`.
 
 ### `POST /api/ingest/corpus`
 
